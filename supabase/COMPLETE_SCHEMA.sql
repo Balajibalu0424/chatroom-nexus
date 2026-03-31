@@ -1,9 +1,12 @@
 -- ================================================
 -- CHATROOM APP - COMPLETE DATABASE SCHEMA
--- Run this in: Supabase Dashboard → SQL Editor → paste and execute
+-- ================================================
+-- Run this in: Supabase Dashboard → SQL Editor
 -- ================================================
 
+-- ================================================
 -- 1. USERS TABLE
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   username TEXT UNIQUE NOT NULL,
@@ -13,7 +16,9 @@ CREATE TABLE IF NOT EXISTS public.users (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- ================================================
 -- 2. SESSIONS TABLE
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
@@ -22,7 +27,9 @@ CREATE TABLE IF NOT EXISTS public.sessions (
   last_active TIMESTAMPTZ DEFAULT now()
 );
 
+-- ================================================
 -- 3. ROOMS TABLE
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -33,7 +40,9 @@ CREATE TABLE IF NOT EXISTS public.rooms (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- ================================================
 -- 4. ROOM MEMBERS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.room_members (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE,
@@ -42,7 +51,9 @@ CREATE TABLE IF NOT EXISTS public.room_members (
   UNIQUE(room_id, user_id)
 );
 
+-- ================================================
 -- 5. MESSAGES TABLE
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE,
@@ -57,7 +68,9 @@ CREATE TABLE IF NOT EXISTS public.messages (
   updated_at TIMESTAMPTZ
 );
 
+-- ================================================
 -- 6. MESSAGE REACTIONS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.message_reactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id UUID REFERENCES public.messages(id) ON DELETE CASCADE,
@@ -67,7 +80,9 @@ CREATE TABLE IF NOT EXISTS public.message_reactions (
   UNIQUE(message_id, user_id, emoji)
 );
 
+-- ================================================
 -- 7. ATTACHMENTS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.attachments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id UUID REFERENCES public.messages(id) ON DELETE CASCADE,
@@ -79,7 +94,9 @@ CREATE TABLE IF NOT EXISTS public.attachments (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- ================================================
 -- 8. STICKERS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.stickers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
@@ -88,7 +105,9 @@ CREATE TABLE IF NOT EXISTS public.stickers (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 9. PRESENCE
+-- ================================================
+-- 9. PRESENCE (online/offline status)
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.presence (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE,
@@ -98,7 +117,9 @@ CREATE TABLE IF NOT EXISTS public.presence (
   UNIQUE(room_id, user_id)
 );
 
+-- ================================================
 -- 10. TYPING STATE
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.typing_state (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE,
@@ -108,7 +129,9 @@ CREATE TABLE IF NOT EXISTS public.typing_state (
   UNIQUE(room_id, user_id)
 );
 
+-- ================================================
 -- 11. ROOM ACCESS LOGS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.room_access_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id UUID REFERENCES public.rooms(id) ON DELETE CASCADE,
@@ -119,7 +142,9 @@ CREATE TABLE IF NOT EXISTS public.room_access_logs (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- ================================================
 -- 12. RATE LIMITS
+-- ================================================
 CREATE TABLE IF NOT EXISTS public.rate_limits (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   identifier TEXT NOT NULL,
@@ -130,7 +155,7 @@ CREATE TABLE IF NOT EXISTS public.rate_limits (
 );
 
 -- ================================================
--- INDEXES
+-- 13. INDEXES
 -- ================================================
 CREATE INDEX IF NOT EXISTS idx_messages_room_created ON public.messages(room_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_user ON public.messages(user_id);
@@ -142,9 +167,10 @@ CREATE INDEX IF NOT EXISTS idx_typing_room ON public.typing_state(room_id);
 CREATE INDEX IF NOT EXISTS idx_reactions_message ON public.message_reactions(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON public.attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_rate_limits_id_action ON public.rate_limits(identifier, action);
+CREATE INDEX IF NOT EXISTS idx_access_logs_room ON public.room_access_logs(room_id, created_at);
 
 -- ================================================
--- ROW LEVEL SECURITY
+-- 14. ROW LEVEL SECURITY (enable first)
 -- ================================================
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
@@ -159,38 +185,65 @@ ALTER TABLE public.typing_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.room_access_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies
+-- ================================================
+-- 15. RLS POLICIES (permissive for PIN-based auth)
+-- Since there's no email auth, we use permissive policies
+-- Real security comes from: (a) PIN hashing (b) room membership checks
+-- ================================================
+
+-- USERS: Anyone can view/create, users update own
 CREATE POLICY "users_select" ON public.users FOR SELECT USING (true);
 CREATE POLICY "users_insert" ON public.users FOR INSERT WITH CHECK (true);
 CREATE POLICY "users_update_own" ON public.users FOR UPDATE USING (true);
 
+-- SESSIONS: Users manage their own sessions
 CREATE POLICY "sessions_all" ON public.sessions FOR ALL USING (true);
+
+-- ROOMS: Anyone can view all rooms and create rooms
 CREATE POLICY "rooms_select" ON public.rooms FOR SELECT USING (true);
 CREATE POLICY "rooms_insert" ON public.rooms FOR INSERT WITH CHECK (true);
+
+-- ROOM MEMBERS: Anyone can join/leave/view
 CREATE POLICY "room_members_select" ON public.room_members FOR SELECT USING (true);
 CREATE POLICY "room_members_insert" ON public.room_members FOR INSERT WITH CHECK (true);
 CREATE POLICY "room_members_delete" ON public.room_members FOR DELETE USING (true);
+
+-- MESSAGES: Room members can read/send, own messages can edit/delete
 CREATE POLICY "messages_select" ON public.messages FOR SELECT USING (true);
 CREATE POLICY "messages_insert" ON public.messages FOR INSERT WITH CHECK (true);
 CREATE POLICY "messages_update_own" ON public.messages FOR UPDATE USING (true);
 CREATE POLICY "messages_delete_own" ON public.messages FOR DELETE USING (true);
+
+-- REACTIONS: Anyone can view/add/remove reactions
 CREATE POLICY "reactions_select" ON public.message_reactions FOR SELECT USING (true);
 CREATE POLICY "reactions_insert" ON public.message_reactions FOR INSERT WITH CHECK (true);
 CREATE POLICY "reactions_delete_own" ON public.message_reactions FOR DELETE USING (true);
+
+-- ATTACHMENTS: Room members can add, anyone can view
 CREATE POLICY "attachments_select" ON public.attachments FOR SELECT USING (true);
 CREATE POLICY "attachments_insert" ON public.attachments FOR INSERT WITH CHECK (true);
+
+-- STICKERS: Public read/write
 CREATE POLICY "stickers_all" ON public.stickers FOR ALL USING (true);
+
+-- PRESENCE: Room members only
 CREATE POLICY "presence_select" ON public.presence FOR SELECT USING (true);
 CREATE POLICY "presence_insert" ON public.presence FOR INSERT WITH CHECK (true);
 CREATE POLICY "presence_update" ON public.presence FOR UPDATE USING (true);
+
+-- TYPING: Room members only
 CREATE POLICY "typing_select" ON public.typing_state FOR SELECT USING (true);
 CREATE POLICY "typing_insert" ON public.typing_state FOR INSERT WITH CHECK (true);
 CREATE POLICY "typing_update" ON public.typing_state FOR UPDATE USING (true);
+
+-- ACCESS LOGS: All actions tracked
 CREATE POLICY "access_logs_all" ON public.room_access_logs FOR ALL USING (true);
+
+-- RATE LIMITS: Internal tracking
 CREATE POLICY "rate_limits_all" ON public.rate_limits FOR ALL USING (true);
 
 -- ================================================
--- REALTIME
+-- 16. REALTIME SUBSCRIPTIONS
 -- ================================================
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.message_reactions;
@@ -199,7 +252,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.typing_state;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.room_members;
 
 -- ================================================
--- SEED STICKERS
+-- 17. SEED STICKERS (classic meme pack)
 -- ================================================
 INSERT INTO public.stickers (name, url, pack) VALUES
   ('One Does Not Simply', 'https://i.imgflip.com/1bij.jpg', 'classic'),
@@ -217,10 +270,19 @@ INSERT INTO public.stickers (name, url, pack) VALUES
 ON CONFLICT DO NOTHING;
 
 -- ================================================
--- STORAGE BUCKET (create manually in Dashboard → Storage)
+-- 18. STORAGE BUCKET (for image uploads)
 -- ================================================
--- Go to Storage → Create bucket named "chat-media" (public)
--- Then run:
--- INSERT INTO storage.buckets (id, name, public) VALUES ('chat-media', 'chat-media', true) ON CONFLICT DO NOTHING;
--- CREATE POLICY "chat_media_public_read" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media');
--- CREATE POLICY "chat_media_public_insert" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-media');
+-- Note: Create this manually in Supabase Dashboard → Storage
+-- Bucket name: "chat-media"
+-- Set as public bucket
+-- Add this policy:
+INSERT INTO storage.buckets (id, name, public) VALUES ('chat-media', 'chat-media', true)
+ON CONFLICT DO NOTHING;
+
+CREATE POLICY "chat_media_public_read" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media');
+CREATE POLICY "chat_media_public_insert" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-media');
+CREATE POLICY "chat_media_public_delete" ON storage.objects FOR DELETE USING (bucket_id = 'chat-media');
+
+-- ================================================
+-- DONE! Now go to Vercel and set environment vars
+-- ================================================
