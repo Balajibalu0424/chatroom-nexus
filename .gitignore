@@ -17,7 +17,6 @@ dist/
 # Misc
 .DS_Store
 *.pem
-.env*.local
 
 # Debug
 npm-debug.log*
@@ -36,3 +35,12 @@ next-env.d.ts
 .vscode/
 *.swp
 *.swo
+
+# Supabase
+supabase/.temp/
+supabase/.branches/
+
+# Environment files (never commit real env files)
+.env
+.env.production
+.env.local

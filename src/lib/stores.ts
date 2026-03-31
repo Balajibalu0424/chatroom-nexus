@@ -6,6 +6,7 @@ import { generateAvatarColor, verifyPin, hashPin } from '@/lib/utils'
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
+  isLoading: boolean
   login: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   register: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   logout: () => void
@@ -18,8 +19,10 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       isAuthenticated: false,
+      isLoading: false,
 
       login: async (username: string, pin: string) => {
+        set({ isLoading: true })
         try {
           const { supabase } = await import('@/lib/supabase')
           
@@ -34,8 +37,9 @@ export const useAuthStore = create<AuthState>()(
             return { success: false, error: 'User not found. Please create an account.' }
           }
 
-          // Verify PIN
-          if (!verifyPin(pin, existingUser.pin_hash)) {
+          // Verify PIN using Web Crypto
+          const isValidPin = await verifyPin(pin, existingUser.pin_hash)
+          if (!isValidPin) {
             return { success: false, error: 'Incorrect PIN' }
           }
 
@@ -45,15 +49,17 @@ export const useAuthStore = create<AuthState>()(
             .update({ last_seen: new Date().toISOString() })
             .eq('id', existingUser.id)
 
-          set({ user: existingUser as User, isAuthenticated: true })
+          set({ user: existingUser as User, isAuthenticated: true, isLoading: false })
           return { success: true }
         } catch (error) {
           console.error('Login error:', error)
+          set({ isLoading: false })
           return { success: false, error: 'An error occurred during login' }
         }
       },
 
       register: async (username: string, pin: string) => {
+        set({ isLoading: true })
         try {
           const { supabase } = await import('@/lib/supabase')
           
@@ -65,12 +71,14 @@ export const useAuthStore = create<AuthState>()(
             .single()
 
           if (existingUser) {
+            set({ isLoading: false })
             return { success: false, error: 'Username already taken' }
           }
 
-          // Create new user
-          const pinHash = hashPin(pin)
+          // Hash PIN using Web Crypto
+          const pinHash = await hashPin(pin)
           const avatarColor = generateAvatarColor()
+
           const { data: newUser, error: createError } = await supabase
             .from('users')
             .insert({
@@ -83,19 +91,21 @@ export const useAuthStore = create<AuthState>()(
             .single()
 
           if (createError) {
+            set({ isLoading: false })
             return { success: false, error: 'Failed to create account' }
           }
 
-          set({ user: newUser as User, isAuthenticated: true })
+          set({ user: newUser as User, isAuthenticated: true, isLoading: false })
           return { success: true }
         } catch (error) {
           console.error('Registration error:', error)
+          set({ isLoading: false })
           return { success: false, error: 'An error occurred during registration' }
         }
       },
 
       logout: () => {
-        set({ user: null, isAuthenticated: false })
+        set({ user: null, isAuthenticated: false, isLoading: false })
       },
 
       checkSession: async () => {
@@ -112,6 +122,9 @@ export const useAuthStore = create<AuthState>()(
 
           if (freshUser) {
             set({ user: freshUser as User })
+          } else {
+            // User was deleted, logout
+            set({ user: null, isAuthenticated: false })
           }
         } catch (error) {
           console.error('Session check error:', error)

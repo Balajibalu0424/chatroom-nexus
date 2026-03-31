@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { generateRoomCode, hashPin, verifyPin } from '@/lib/utils'
 import type { Room } from '@/lib/types'
 import { toast } from 'sonner'
-import { Loader2, Lock, Users } from 'lucide-react'
+import { Loader2, Lock, Users, Shield } from 'lucide-react'
 import { useAuthStore } from '@/lib/stores'
 
 interface CreateJoinRoomProps {
@@ -42,7 +42,7 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
     
     try {
       const roomCode = generateRoomCode()
-      const pinHash = roomPin ? hashPin(roomPin) : null
+      const pinHash = roomPin ? await hashPin(roomPin) : null
       
       const { data: room, error } = await supabase
         .from('rooms')
@@ -93,7 +93,7 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
         .single()
 
       if (fetchError || !room) {
-        toast.error('Room not found')
+        toast.error('Room not found. Check the code and try again.')
         setIsLoading(false)
         return
       }
@@ -101,12 +101,13 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
       // Check if room is locked
       if (room.is_locked) {
         if (!joinPin) {
-          toast.error('This room requires a PIN')
+          toast.error('This room is PIN protected. Enter the room PIN.')
           setIsLoading(false)
           return
         }
         
-        if (!verifyPin(joinPin, room.pin_hash)) {
+        const isValidPin = await verifyPin(joinPin, room.pin_hash)
+        if (!isValidPin) {
           toast.error('Incorrect room PIN')
           setIsLoading(false)
           return
@@ -162,10 +163,10 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
           </DialogTitle>
           <DialogDescription>
             {mode === 'choice' 
-              ? 'Create a new chatroom or join an existing one'
+              ? 'Create a new chatroom or join an existing one with a code'
               : mode === 'create'
               ? 'Set up your new chatroom'
-              : 'Enter room code to join'}
+              : 'Enter the 6-character room code to join'}
           </DialogDescription>
         </DialogHeader>
 
@@ -200,7 +201,12 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="roomPin">Room PIN (Optional)</Label>
+              <Label htmlFor="roomPin">
+                <div className="flex items-center gap-1">
+                  <Shield className="h-3 w-3" />
+                  Room PIN (Optional)
+                </div>
+              </Label>
               <Input
                 id="roomPin"
                 type="password"
@@ -219,7 +225,7 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
                 Back
               </Button>
               <Button onClick={handleCreateRoom} disabled={isLoading} className="flex-1">
-                {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Create Room
               </Button>
             </div>
@@ -257,7 +263,7 @@ export function CreateJoinRoom({ open, onOpenChange, onRoomJoined }: CreateJoinR
                 Back
               </Button>
               <Button onClick={handleJoinRoom} disabled={isLoading} className="flex-1">
-                {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 Join Room
               </Button>
             </div>

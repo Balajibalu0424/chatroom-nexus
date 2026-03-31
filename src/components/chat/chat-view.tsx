@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
@@ -13,8 +13,8 @@ import { MessageBubble } from '@/components/chat/message-bubble'
 import { TypingIndicator } from '@/components/chat/typing-indicator'
 import { ImageUpload } from '@/components/chat/image-upload'
 import { supabase } from '@/lib/supabase'
-import { useAuthStore, useRoomStore } from '@/lib/stores'
-import { formatMessageDate, shouldShowDateDivider } from '@/lib/utils'
+import { useAuthStore } from '@/lib/stores'
+import { formatMessageDate, shouldShowDateDivider, getInitials } from '@/lib/utils'
 import { format } from 'date-fns'
 import type { Message, Room, TypingStatus } from '@/lib/types'
 import { 
@@ -30,7 +30,9 @@ import {
   Edit2,
   Sticker,
   FileText,
-  Mic
+  X,
+  Check,
+  CheckCheck
 } from 'lucide-react'
 
 interface ChatViewProps {
@@ -50,16 +52,16 @@ export function ChatView({ room, onBack }: ChatViewProps) {
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [copiedCode, setCopiedCode] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   
   const user = useAuthStore((state) => state.user)
-  const updateMessage = useRoomStore((state) => state.updateMessage)
-  const deleteMessage = useRoomStore((state) => state.deleteMessage)
 
-  // Load messages
+  // Load messages with reactions
   useEffect(() => {
     const loadMessages = async () => {
       setIsLoading(true)
@@ -68,7 +70,8 @@ export function ChatView({ room, onBack }: ChatViewProps) {
         .from('messages')
         .select(`
           *,
-          sender:users(username, avatar_color)
+          sender:users(username, avatar_color),
+          reactions:message_reactions(*, user:users(username))
         `)
         .eq('room_id', room.id)
         .order('created_at', { ascending: true })
@@ -84,7 +87,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
     loadMessages()
   }, [room.id])
 
-  // Subscribe to new messages
+  // Subscribe to realtime changes
   useEffect(() => {
     const channel = supabase
       .channel(`room:${room.id}`)
@@ -97,17 +100,19 @@ export function ChatView({ room, onBack }: ChatViewProps) {
           filter: `room_id=eq.${room.id}`,
         },
         async (payload) => {
-          // Fetch full message with sender info
           const { data } = await supabase
             .from('messages')
-            .select(`*, sender:users(username, avatar_color)`)
+            .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
             .eq('id', payload.new.id)
             .single()
           
           if (data) {
-            setMessages((prev) => [...prev, data as Message])
+            setMessages((prev) => {
+              // Avoid duplicates
+              if (prev.some(m => m.id === data.id)) return prev
+              return [...prev, data as Message]
+            })
             
-            // Update unread count if scrolled up
             if (!isAtBottom) {
               setUnreadCount((prev) => prev + 1)
             }
@@ -123,15 +128,60 @@ export function ChatView({ room, onBack }: ChatViewProps) {
           filter: `room_id=eq.${room.id}`,
         },
         (payload) => {
-          if (payload.new.is_deleted) {
-            deleteMessage(room.id, payload.new.id)
-          } else {
-            updateMessage(room.id, payload.new.id, payload.new)
-          }
           setMessages((prev) =>
             prev.map((m) =>
               m.id === payload.new.id ? { ...m, ...payload.new } : m
             )
+          )
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'message_reactions',
+        },
+        async (payload) => {
+          // Fetch the full reaction with user info
+          const { data } = await supabase
+            .from('message_reactions')
+            .select(`*, user:users(username)`)
+            .eq('id', payload.new.id)
+            .single()
+          
+          if (data) {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id === payload.new.message_id) {
+                  const existing = m.reactions || []
+                  if (existing.some((r: any) => r.id === data.id)) return m
+                  return { ...m, reactions: [...existing, data] }
+                }
+                return m
+              })
+            )
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'message_reactions',
+        },
+        (payload) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id === payload.old.message_id) {
+                return {
+                  ...m,
+                  reactions: (m.reactions || []).filter((r: any) => r.id !== payload.old.id)
+                }
+              }
+              return m
+            })
           )
         }
       )
@@ -152,16 +202,15 @@ export function ChatView({ room, onBack }: ChatViewProps) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [room.id, user?.id, isAtBottom, updateMessage, deleteMessage])
+  }, [room.id, user?.id, isAtBottom])
 
-  // Scroll to bottom on new messages
+  // Auto-scroll
   useEffect(() => {
     if (isAtBottom) {
       scrollToBottom()
     }
   }, [messages])
 
-  // Clear unread count when scrolling to bottom
   useEffect(() => {
     if (isAtBottom) {
       setUnreadCount(0)
@@ -185,7 +234,6 @@ export function ChatView({ room, onBack }: ChatViewProps) {
     
     try {
       if (editingMessage) {
-        // Update message
         const { error } = await supabase
           .from('messages')
           .update({ 
@@ -207,7 +255,6 @@ export function ChatView({ room, onBack }: ChatViewProps) {
         
         setEditingMessage(null)
       } else {
-        // Send new message
         const { data } = await supabase
           .from('messages')
           .insert({
@@ -217,7 +264,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
             type: 'text',
             reply_to: replyTo?.id || null,
           })
-          .select(`*, sender:users(username, avatar_color)`)
+          .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
           .single()
 
         if (data) {
@@ -228,6 +275,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
       setMessage('')
       setReplyTo(null)
       sendTypingStatus(false)
+      inputRef.current?.focus()
     } catch (error) {
       console.error('Send message error:', error)
     }
@@ -251,16 +299,12 @@ export function ChatView({ room, onBack }: ChatViewProps) {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMessage(e.target.value)
-    
-    // Send typing status
     sendTypingStatus(true)
     
-    // Clear previous timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current)
     }
     
-    // Set new timeout to stop typing
     typingTimeoutRef.current = setTimeout(() => {
       sendTypingStatus(false)
     }, 2000)
@@ -276,6 +320,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
   const handleEmojiSelect = (emoji: string) => {
     setMessage((prev) => prev + emoji)
     setShowEmojiPicker(false)
+    inputRef.current?.focus()
   }
 
   const handleStickerSelect = async (stickerUrl: string) => {
@@ -288,7 +333,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
           content: stickerUrl,
           type: 'sticker',
         })
-        .select(`*, sender:users(username, avatar_color)`)
+        .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
         .single()
 
       if (data) {
@@ -314,7 +359,7 @@ export function ChatView({ room, onBack }: ChatViewProps) {
           file_name: fileName,
           reply_to: replyTo?.id || null,
         })
-        .select(`*, sender:users(username, avatar_color)`)
+        .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
         .single()
 
       if (data) {
@@ -349,33 +394,60 @@ export function ChatView({ room, onBack }: ChatViewProps) {
   const handleEditMessage = (message: Message) => {
     setEditingMessage(message)
     setMessage(message.content)
+    inputRef.current?.focus()
   }
 
   const handleReply = (message: Message) => {
     setReplyTo(message)
+    inputRef.current?.focus()
   }
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(room.code)
+    setCopiedCode(true)
+    setTimeout(() => setCopiedCode(false), 2000)
   }
 
   const copyMessageContent = (content: string) => {
     navigator.clipboard.writeText(content)
   }
 
+  const handleReactionUpdate = async (messageId: string) => {
+    const { data } = await supabase
+      .from('message_reactions')
+      .select(`*, user:users(username)`)
+      .eq('message_id', messageId)
+    
+    if (data) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, reactions: data } : m
+        )
+      )
+    }
+  }
+
+  const cancelEdit = () => {
+    setEditingMessage(null)
+    setMessage('')
+  }
+
   const otherTypingUsers = typingUsers.filter((t) => t.is_typing && t.user_id !== user?.id)
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full bg-background relative">
         {/* Header */}
-        <div className="flex items-center gap-3 p-4 border-b">
-          <Button variant="ghost" size="icon" onClick={onBack}>
+        <div className="flex items-center gap-3 p-3 lg:p-4 border-b bg-background shrink-0">
+          <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           
-          <Avatar className="h-10 w-10">
-            <AvatarFallback style={{ backgroundColor: room.is_locked ? '#ef4444' : '#22c55e' }}>
+          <Avatar className="h-10 w-10 shrink-0">
+            <AvatarFallback 
+              style={{ backgroundColor: room.is_locked ? '#ef4444' : '#22c55e' }}
+              className="text-white font-medium"
+            >
               {room.name.slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -384,23 +456,27 @@ export function ChatView({ room, onBack }: ChatViewProps) {
             <h2 className="font-semibold truncate">{room.name}</h2>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               {room.is_locked ? (
-                <Lock className="h-3 w-3" />
+                <Lock className="h-3 w-3 shrink-0" />
               ) : (
-                <Users className="h-3 w-3" />
+                <Users className="h-3 w-3 shrink-0" />
               )}
-              <span>Code: {room.code}</span>
+              <span className="font-mono">{room.code}</span>
               <button
                 onClick={handleCopyCode}
-                className="hover:text-foreground transition-colors"
+                className="hover:text-foreground transition-colors p-0.5"
               >
-                <Copy className="h-3 w-3" />
+                {copiedCode ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
               </button>
             </div>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" className="shrink-0">
                 <MoreVertical className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -421,185 +497,187 @@ export function ChatView({ room, onBack }: ChatViewProps) {
         {/* Messages */}
         <ScrollArea 
           ref={messagesContainerRef}
-          className="flex-1 p-4"
+          className="flex-1"
           onScroll={handleScroll}
         >
-          {isLoading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-muted-foreground">Loading messages...</div>
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <div className="text-6xl mb-4">💬</div>
-              <p>No messages yet</p>
-              <p className="text-sm">Send the first message!</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((msg, index) => {
-                const prevMsg = index > 0 ? messages[index - 1] : null
-                const showDateDivider = shouldShowDateDivider(messages, index)
-                const isOwn = msg.user_id === user?.id
-                const isGrouped = prevMsg && 
-                  prevMsg.user_id === msg.user_id && 
-                  new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
+          <div className="p-4 space-y-4 min-h-full">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-full py-20">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3" />
+                <p className="text-sm text-muted-foreground">Loading messages...</p>
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full py-20 text-center">
+                <div className="text-6xl mb-4">💬</div>
+                <p className="text-lg font-medium mb-1">No messages yet</p>
+                <p className="text-sm text-muted-foreground">Send the first message to start the conversation!</p>
+              </div>
+            ) : (
+              <>
+                {messages.map((msg, index) => {
+                  const prevMsg = index > 0 ? messages[index - 1] : null
+                  const showDateDivider = shouldShowDateDivider(messages, index)
+                  const isOwn = msg.user_id === user?.id
+                  const isGrouped = prevMsg && 
+                    prevMsg.user_id === msg.user_id && 
+                    new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
 
-                return (
-                  <div key={msg.id}>
-                    {showDateDivider && (
-                      <div className="flex items-center gap-4 my-4">
-                        <div className="flex-1 h-px bg-border" />
-                        <span className="text-xs text-muted-foreground">
-                          {formatMessageDate(msg.created_at)}
-                        </span>
-                        <div className="flex-1 h-px bg-border" />
-                      </div>
-                    )}
-                    
-                    <MessageBubble
-                      message={msg}
-                      isOwn={isOwn}
-                      isGrouped={!!isGrouped}
-                      onEdit={() => handleEditMessage(msg)}
-                      onDelete={() => handleDeleteMessage(msg.id)}
-                      onReply={() => handleReply(msg)}
-                      onCopy={() => copyMessageContent(msg.content)}
-                    />
-                  </div>
-                )
-              })}
-              
-              {otherTypingUsers.length > 0 && (
-                <TypingIndicator users={otherTypingUsers.map((t) => t.username)} />
-              )}
-            </div>
-            
-          )}
+                  return (
+                    <div key={msg.id}>
+                      {showDateDivider && (
+                        <div className="flex items-center gap-4 my-4">
+                          <div className="flex-1 h-px bg-border" />
+                          <span className="text-xs text-muted-foreground bg-background px-2 py-0.5 rounded-full">
+                            {formatMessageDate(msg.created_at)}
+                          </span>
+                          <div className="flex-1 h-px bg-border" />
+                        </div>
+                      )}
+                      
+                      <MessageBubble
+                        message={msg}
+                        isOwn={isOwn}
+                        isGrouped={!!isGrouped}
+                        onEdit={() => handleEditMessage(msg)}
+                        onDelete={() => handleDeleteMessage(msg.id)}
+                        onReply={() => handleReply(msg)}
+                        onCopy={() => copyMessageContent(msg.content)}
+                        onReactionUpdate={() => handleReactionUpdate(msg.id)}
+                      />
+                    </div>
+                  )
+                })}
+                
+                {otherTypingUsers.length > 0 && (
+                  <TypingIndicator users={otherTypingUsers.map((t) => t.username)} />
+                )}
+              </>
+            )}
+          </div>
           <div ref={messagesEndRef} />
         </ScrollArea>
 
-        {/* Unread indicator */}
+        {/* Unread badge */}
         {!isAtBottom && unreadCount > 0 && (
           <button
             onClick={() => {
               scrollToBottom()
               setIsAtBottom(true)
-              setUnreadCount(0)
             }}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-medium shadow-lg animate-bounce"
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-medium shadow-lg animate-bounce z-10 flex items-center gap-2"
           >
+            <ChevronDown className="h-4 w-4" />
             {unreadCount} new message{unreadCount > 1 ? 's' : ''}
           </button>
         )}
 
         {/* Reply preview */}
         {replyTo && (
-          <div className="px-4 py-2 bg-muted/50 border-t flex items-center gap-2">
+          <div className="px-4 py-2 bg-muted/50 border-t flex items-center gap-3 shrink-0">
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-muted-foreground">Replying to {replyTo.sender?.username}</p>
-              <p className="text-sm truncate">{replyTo.content}</p>
+              <p className="text-xs text-primary font-medium">Replying to {replyTo.sender?.username}</p>
+              <p className="text-sm text-muted-foreground truncate">{replyTo.content}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}>
-              ×
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setReplyTo(null)}>
+              <X className="h-4 w-4" />
             </Button>
           </div>
         )}
 
         {/* Edit indicator */}
         {editingMessage && (
-          <div className="px-4 py-2 bg-primary/10 border-t flex items-center gap-2">
-            <Edit2 className="h-4 w-4" />
-            <span className="text-sm flex-1">Editing message</span>
-            <Button variant="ghost" size="sm" onClick={() => {
-              setEditingMessage(null)
-              setMessage('')
-            }}>
+          <div className="px-4 py-2 bg-primary/10 border-t flex items-center gap-3 shrink-0">
+            <Edit2 className="h-4 w-4 text-primary" />
+            <span className="text-sm flex-1 text-primary font-medium">Editing message</span>
+            <Button variant="ghost" size="sm" onClick={cancelEdit}>
               Cancel
             </Button>
           </div>
         )}
 
-        {/* Input */}
-        <div className="p-4 border-t bg-background">
+        {/* Input area */}
+        <div className="p-3 lg:p-4 border-t bg-background shrink-0">
           <div className="flex items-end gap-2">
-            <div className="flex-1 flex items-end gap-2">
-              <div className="flex gap-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={() => setShowImageUpload(!showImageUpload)}
-                    >
-                      <Image className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Send Image</TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={() => setShowStickerPicker(!showStickerPicker)}
-                    >
-                      <Sticker className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Stickers</TooltipContent>
-                </Tooltip>
-              </div>
-
-              <div className="flex-1 relative">
-                <Input
-                  value={message}
-                  onChange={handleInputChange}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type a message..."
-                  className="pr-20"
-                />
-                
-                <div className="absolute right-2 bottom-1 flex gap-1">
+            {/* Left tools */}
+            <div className="flex gap-1 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <Button 
                     variant="ghost" 
                     size="icon"
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                    className="h-8 w-8"
+                    onClick={() => setShowImageUpload(!showImageUpload)}
+                    className="h-10 w-10"
                   >
-                    <Smile className="h-5 w-5" />
+                    <Image className="h-5 w-5" />
                   </Button>
-                </div>
+                </TooltipTrigger>
+                <TooltipContent>Photo</TooltipContent>
+              </Tooltip>
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={() => setShowStickerPicker(!showStickerPicker)}
+                    className="h-10 w-10"
+                  >
+                    <Sticker className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Stickers</TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* Main input */}
+            <div className="flex-1 relative">
+              <Input
+                ref={inputRef}
+                value={message}
+                onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
+                placeholder="Message..."
+                className="pr-16 h-11"
+              />
+              
+              <div className="absolute right-1.5 bottom-1.5 flex gap-0.5">
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className="h-8 w-8"
+                >
+                  <Smile className="h-5 w-5" />
+                </Button>
               </div>
             </div>
 
+            {/* Send button */}
             <Button 
               onClick={sendMessage}
               disabled={!message.trim()}
               size="icon"
-              className="shrink-0"
+              className="h-11 w-11 shrink-0"
             >
               <Send className="h-5 w-5" />
             </Button>
           </div>
 
-          {/* Emoji picker popup */}
+          {/* Tooltip popups */}
           {showEmojiPicker && (
-            <div className="absolute bottom-full right-4 mb-2">
+            <div className="absolute bottom-full right-4 lg:right-auto lg:left-4 mb-2 z-20">
               <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setShowEmojiPicker(false)} />
             </div>
           )}
 
-          {/* Sticker picker popup */}
           {showStickerPicker && (
-            <div className="absolute bottom-full right-4 mb-2">
+            <div className="absolute bottom-full right-4 mb-2 z-20">
               <StickerPicker onSelect={handleStickerSelect} onClose={() => setShowStickerPicker(false)} />
             </div>
           )}
 
-          {/* Image upload popup */}
           {showImageUpload && (
-            <div className="absolute bottom-full right-4 mb-2">
+            <div className="absolute bottom-full right-4 mb-2 z-20">
               <ImageUpload 
                 onUpload={handleImageUpload} 
                 onClose={() => setShowImageUpload(false)} 
@@ -609,5 +687,13 @@ export function ChatView({ room, onBack }: ChatViewProps) {
         </div>
       </div>
     </TooltipProvider>
+  )
+}
+
+function ChevronDown({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="m6 9 6 6 6-6"/>
+    </svg>
   )
 }

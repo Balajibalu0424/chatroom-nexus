@@ -3,22 +3,24 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Missing Supabase environment variables. Please add them to .env.local')
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    storageKey: 'chatroom-auth',
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10,
-    },
-  },
-})
+// Create client only if we have credentials, otherwise return a dummy client
+export const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        storageKey: 'chatroom-auth',
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
+    })
+  : createClient('https://placeholder.supabase.co', 'placeholder', {
+      auth: { persistSession: false },
+      realtime: { params: { eventsPerSecond: 10 } },
+    })
 
 export type Database = {
   public: {

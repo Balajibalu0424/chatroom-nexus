@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuthStore } from '@/lib/stores'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Loader2, MessageCircle, Shield } from 'lucide-react'
 
 interface LoginFormProps {
   onSuccess: () => void
@@ -59,72 +59,94 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="username">Username</Label>
-        <Input
-          id="username"
-          placeholder="Enter your username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          maxLength={20}
-          autoComplete="off"
-        />
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {!isLoading && (
+        <div className="space-y-2">
+          <Label htmlFor="username">Username</Label>
+          <Input
+            id="username"
+            placeholder="Choose a username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            maxLength={20}
+            autoComplete="off"
+            className="h-12"
+          />
+        </div>
+      )}
       
-      <div className="space-y-2">
-        <Label htmlFor="pin">PIN</Label>
-        <Input
-          id="pin"
-          type="password"
-          placeholder="4-6 digit PIN"
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          maxLength={6}
-          autoComplete="off"
-        />
-      </div>
+      {!isLoading && (
+        <div className="space-y-2">
+          <Label htmlFor="pin">
+            <div className="flex items-center gap-1">
+              <Shield className="h-3 w-3" />
+              {mode === 'login' ? 'Your PIN' : 'Create a PIN (4-6 digits)'}
+            </div>
+          </Label>
+          <Input
+            id="pin"
+            type="password"
+            placeholder={mode === 'login' ? 'Enter your PIN' : 'Create a 4-6 digit PIN'}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            maxLength={6}
+            autoComplete="off"
+            className="h-12 text-center text-xl tracking-[0.5em] font-mono"
+          />
+        </div>
+      )}
 
-      <div className="flex gap-2">
-        <Button
-          type="submit"
-          className="flex-1"
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : mode === 'login' ? (
-            'Enter'
+      {isLoading && (
+        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">
+            {mode === 'login' ? 'Signing you in...' : 'Creating your account...'}
+          </p>
+        </div>
+      )}
+
+      {!isLoading && (
+        <Button type="submit" className="w-full h-12 text-base" disabled={isLoading}>
+          {mode === 'login' ? (
+            <>Enter Chatroom</>
           ) : (
-            'Create Account'
+            <>Create Account</>
           )}
         </Button>
-      </div>
+      )}
 
-      <div className="text-center text-sm">
-        {mode === 'login' ? (
-          <p>
-            New here?{' '}
-            <button
-              type="button"
-              onClick={() => setMode('register')}
-              className="text-primary hover:underline"
-            >
-              Create account
-            </button>
-          </p>
-        ) : (
-          <p>
-            Already have an account?{' '}
-            <button
-              type="button"
-              onClick={() => setMode('login')}
-              className="text-primary hover:underline"
-            >
-              Login
-            </button>
-          </p>
-        )}
+      {!isLoading && (
+        <div className="text-center text-sm">
+          {mode === 'login' ? (
+            <p className="text-muted-foreground">
+              New here?{' '}
+              <button
+                type="button"
+                onClick={() => setMode('register')}
+                className="text-primary hover:underline font-medium"
+              >
+                Create account
+              </button>
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => setMode('login')}
+                className="text-primary hover:underline font-medium"
+              >
+                Sign in
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="pt-2 border-t">
+        <p className="text-xs text-center text-muted-foreground">
+          Your PIN is stored securely and never leaves your device
+        </p>
       </div>
     </form>
   )

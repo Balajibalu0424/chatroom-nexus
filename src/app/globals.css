@@ -23,10 +23,11 @@
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 199 89% 48%;
-    --radius: 0.5rem;
+    --radius: 0.75rem;
     --chat-bubble: 240 4.8% 95.9%;
     --chat-bubble-sent: 199 89% 48%;
     --chat-input: 0 0% 100%;
+    --sidebar: 240 6% 97%;
   }
 
   .dark {
@@ -52,6 +53,7 @@
     --chat-bubble: 240 3.7% 15.9%;
     --chat-bubble-sent: 199 89% 48%;
     --chat-input: 0 0% 6%;
+    --sidebar: 0 0% 6%;
   }
 }
 
@@ -63,6 +65,11 @@
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+}
+
+/* Sidebar background */
+.bg-sidebar {
+  background-color: hsl(var(--sidebar));
 }
 
 /* Custom scrollbar */
@@ -113,4 +120,25 @@
   );
   background-size: 200% 100%;
   animation: shimmer 2s linear infinite;
+}
+
+/* Prevent layout shift from scrollbars */
+html {
+  overflow-y: scroll;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Focus visible styles */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Remove default focus for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
 }

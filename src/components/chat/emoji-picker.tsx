@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import data from 'emoji-picker-react'
 import { X } from 'lucide-react'
+import dynamic from 'next/dynamic'
+
+const Picker = dynamic(() => import('emoji-picker-react'), { ssr: false })
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void
@@ -19,7 +21,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
           <X className="h-4 w-4" />
         </Button>
       </div>
-      <data.EmojiPicker 
+      <Picker
         onEmojiClick={(emojiData) => {
           onSelect(emojiData.emoji)
         }}
@@ -27,7 +29,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
         width={320}
         reactionsDefaultOpen={false}
         searchDisabled
-        skinToneDisabled
+        skinTonesDisabled
       />
     </div>
   )

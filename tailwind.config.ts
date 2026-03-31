@@ -48,6 +48,7 @@ const config: Config = {
           bubbleSent: 'hsl(var(--chat-bubble-sent))',
           input: 'hsl(var(--chat-input))',
         },
+        sidebar: 'hsl(var(--sidebar))',
       },
       borderRadius: {
         lg: 'var(--radius)',
