@@ -4,12 +4,6 @@ import { createClient } from '@supabase/supabase-js'
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
 
-// Initialize Supabase with service role key for admin operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 export async function POST(request: Request) {
   try {
     const { userId, roomId, title, body, data } = await request.json()
@@ -17,6 +11,16 @@ export async function POST(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
     }
+
+    // Initialize Supabase with service role key for admin operations
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey)
 
     // Get user's push subscriptions
     const { data: subscriptions, error } = await supabaseAdmin
@@ -31,6 +35,12 @@ export async function POST(request: Request) {
 
     if (!subscriptions || subscriptions.length === 0) {
       return NextResponse.json({ message: 'No subscriptions found' }, { status: 200 })
+    }
+
+    // Check if VAPID keys are configured
+    if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+      console.warn('VAPID keys not configured. Push notifications disabled.')
+      return NextResponse.json({ error: 'Push notifications not configured' }, { status: 503 })
     }
 
     // Import web-push dynamically
