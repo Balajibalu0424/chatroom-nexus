@@ -100,6 +100,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const user = useAuthStore((state) => state.user)
 
   // Load messages with reactions (with pagination)
+  // NOTE: We load NEWEST first (desc), then reverse for display (asc order for grouping)
   const loadMessages = useCallback(async (loadMore = false) => {
     if (loadMore) {
       setIsLoadingMore(true)
@@ -118,10 +119,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           reactions:message_reactions(*, user:users(id, username))
         `)
         .eq('room_id', room.id)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false }) // NEWEST first
         .limit(MESSAGES_PER_PAGE)
 
-      // If loading more, get messages older than the oldest one
+      // If loading more, get messages older than the oldest (scroll up)
       if (loadMore && oldestMessageId) {
         const { data: oldestMsg } = await supabase
           .from('messages')
@@ -137,8 +138,11 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
       const { data } = await query
 
       if (data) {
+        // Reverse to show oldest at top (ascending) for normal chat display
+        const sortedData = [...data].reverse() as Message[]
+        
         if (loadMore) {
-          setMessages(prev => [...data as Message[], ...prev])
+          setMessages(prev => [...prev, ...sortedData])
           if (data.length < MESSAGES_PER_PAGE) {
             setHasMore(false)
           }
@@ -146,7 +150,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
             setOldestMessageId(data[0].id)
           }
         } else {
-          setMessages(data as Message[])
+          setMessages(sortedData)
           if (data.length > 0) {
             setOldestMessageId(data[data.length - 1].id)
           }
