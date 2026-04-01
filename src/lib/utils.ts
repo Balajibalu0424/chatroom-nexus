@@ -36,8 +36,13 @@ export async function hashPin(pin: string): Promise<string> {
 
 // Verify PIN against hash
 export async function verifyPin(pin: string, hash: string): Promise<boolean> {
-  const newHash = await hashPin(pin)
-  return newHash === hash
+  try {
+    const newHash = await hashPin(pin)
+    return newHash === hash
+  } catch (error) {
+    console.error('verifyPin error:', error)
+    return false
+  }
 }
 
 // Synchronous hash for compatibility (uses simple hash for non-critical ops)

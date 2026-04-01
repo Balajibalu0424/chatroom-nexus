@@ -33,13 +33,24 @@ export const useAuthStore = create<AuthState>()(
             .eq('username', username)
             .single()
 
-          if (fetchError || !existingUser) {
+          if (fetchError) {
+            console.error('Login fetch error:', fetchError)
+            set({ isLoading: false })
+            if (fetchError.code === 'PGRST116') {
+              return { success: false, error: 'User not found. Please create an account.' }
+            }
+            return { success: false, error: 'Failed to find user' }
+          }
+
+          if (!existingUser) {
+            set({ isLoading: false })
             return { success: false, error: 'User not found. Please create an account.' }
           }
 
           // Verify PIN using Web Crypto
           const isValidPin = await verifyPin(pin, existingUser.pin_hash)
           if (!isValidPin) {
+            set({ isLoading: false })
             return { success: false, error: 'Incorrect PIN' }
           }
 
@@ -51,7 +62,7 @@ export const useAuthStore = create<AuthState>()(
 
           set({ user: existingUser as User, isAuthenticated: true, isLoading: false })
           return { success: true }
-        } catch (error) {
+        } catch (error: any) {
           console.error('Login error:', error)
           set({ isLoading: false })
           return { success: false, error: 'An error occurred during login' }

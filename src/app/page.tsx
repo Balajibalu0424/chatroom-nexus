@@ -252,6 +252,7 @@ export default function Home() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [showCreateJoin, setShowCreateJoin] = useState(false)
   const [isHydrated, setIsHydrated] = useState(false)
+  const [appError, setAppError] = useState<string | null>(null)
   
   const { user, isAuthenticated, logout } = useAuthStore()
 
@@ -263,7 +264,10 @@ export default function Home() {
   // Load rooms when authenticated
   useEffect(() => {
     if (isAuthenticated && user) {
-      loadRooms()
+      loadRooms().catch((err: any) => {
+        console.error('loadRooms error:', err)
+        setAppError('Failed to load rooms: ' + err.message)
+      })
     }
   }, [isAuthenticated, user])
 
@@ -271,20 +275,26 @@ export default function Home() {
   useEffect(() => {
     if (!user) return
 
-    const channel = supabase
-      .channel('rooms-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'room_members',
-        filter: `user_id=eq.${user.id}`,
-      }, () => {
-        loadRooms()
-      })
-      .subscribe()
+    let channel: any
+    try {
+      channel = supabase
+        .channel('rooms-changes')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'room_members',
+          filter: `user_id=eq.${user.id}`,
+        }, () => {
+          loadRooms().catch(console.error)
+        })
+        .subscribe()
+    } catch (err: any) {
+      console.error('Channel subscription error:', err)
+      setAppError('Realtime error: ' + err.message)
+    }
 
     return () => {
-      supabase.removeChannel(channel)
+      if (channel) supabase.removeChannel(channel)
     }
   }, [user?.id])
 
@@ -345,6 +355,21 @@ export default function Home() {
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
           <p className="text-muted-foreground text-sm">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error if any
+  if (appError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 max-w-md w-full">
+          <h2 className="text-destructive font-semibold mb-2">App Error</h2>
+          <pre className="text-xs text-muted-foreground overflow-auto whitespace-pre-wrap">{appError}</pre>
+          <Button className="mt-4 w-full" onClick={() => setAppError(null)}>
+            Try Again
+          </Button>
         </div>
       </div>
     )
