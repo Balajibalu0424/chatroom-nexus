@@ -50,8 +50,11 @@ export default function Home() {
         `)
         .eq('user_id', user.id)
 
-      if (data) {
-        const loadedRooms = data.map((m: any) => m.room).filter(Boolean) as Room[]
+      if (data && data.length > 0) {
+        const loadedRooms = data
+          .map((m: any) => m.room)
+          .filter((room): room is Room => room && typeof room === 'object')
+        
         // Sort by last message time
         loadedRooms.sort((a, b) => {
           const aTime = a.last_message_at || a.created_at
@@ -60,9 +63,14 @@ export default function Home() {
         })
         setRooms(loadedRooms)
         setFilteredRooms(loadedRooms)
+      } else {
+        setRooms([])
+        setFilteredRooms([])
       }
     } catch (e: any) {
       console.error('Load rooms error:', e)
+      setRooms([])
+      setFilteredRooms([])
     }
   }, [user])
 
@@ -155,16 +163,18 @@ export default function Home() {
   }
 
   const formatLastMessage = (room: Room) => {
-    if (!room.last_message) return 'No messages yet'
+    if (!room?.last_message) return 'No messages yet'
     
     const msg = room.last_message
+    if (!msg?.content) return 'No messages yet'
+    
     const prefix = msg.type === 'image' ? '📷 Image' :
                    msg.type === 'file' ? '📎 File' :
-                   msg.type === 'sticker' ? '� sticker' :
+                   msg.type === 'sticker' ? '💬 sticker' :
                    msg.type === 'voice' ? '🎤 Voice' :
-                   msg.content.slice(0, 30)
+                   String(msg.content || '').slice(0, 30)
     
-    return prefix + (msg.content.length > 30 ? '...' : '')
+    return prefix + (msg.content?.length > 30 ? '...' : '')
   }
 
   const formatTime = (dateStr: string) => {
