@@ -44,3 +44,6 @@ supabase/.branches/
 .env
 .env.production
 .env.local
+
+# Local Netlify folder
+.netlify

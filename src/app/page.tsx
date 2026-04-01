@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { LoginForm } from '@/components/auth/login-form'
+import { CreateJoinRoom } from '@/components/room/create-join-room'
 import { useAuthStore } from '@/lib/stores'
 import type { Room } from '@/lib/types'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,8 @@ export default function Home() {
   const { user, isAuthenticated, logout } = useAuthStore()
   const [rooms, setRooms] = useState<Room[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [showCreateJoin, setShowCreateJoin] = useState(false)
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 100)
@@ -37,6 +40,12 @@ export default function Home() {
     } catch (e: any) {
       console.error('Load rooms error:', e)
     }
+  }
+
+  const handleRoomJoined = (room: Room) => {
+    setShowCreateJoin(false)
+    setSelectedRoom(room)
+    loadRooms()
   }
 
   useEffect(() => {
@@ -116,12 +125,18 @@ export default function Home() {
           <p className="text-muted-foreground mb-4">
             Create or join a room to start chatting
           </p>
-          <Button>
+          <Button onClick={() => setShowCreateJoin(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Create Room
           </Button>
         </div>
       </div>
+
+      <CreateJoinRoom
+        open={showCreateJoin}
+        onOpenChange={setShowCreateJoin}
+        onRoomJoined={handleRoomJoined}
+      />
     </div>
   )
 }
