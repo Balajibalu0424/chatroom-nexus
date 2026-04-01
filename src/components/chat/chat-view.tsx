@@ -86,6 +86,12 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const [isAdmin, setIsAdmin] = useState(false)
   const [bannedUsers, setBannedUsers] = useState<string[]>([])
   
+  // Pagination state
+  const [hasMore, setHasMore] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [oldestMessageId, setOldestMessageId] = useState<string | null>(null)
+  const MESSAGES_PER_PAGE = 50
+  
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -93,13 +99,18 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   
   const user = useAuthStore((state) => state.user)
 
-  // Load messages with reactions
-  const loadMessages = useCallback(async () => {
-    setIsLoading(true)
+  // Load messages with reactions (with pagination)
+  const loadMessages = useCallback(async (loadMore = false) => {
+    if (loadMore) {
+      setIsLoadingMore(true)
+    } else {
+      setIsLoading(true)
+    }
     
     try {
       const { supabase } = await import('@/lib/supabase')
-      const { data } = await supabase
+      
+      let query = supabase
         .from('messages')
         .select(`
           *,
@@ -108,16 +119,55 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         `)
         .eq('room_id', room.id)
         .order('created_at', { ascending: true })
-        .limit(200)
+        .limit(MESSAGES_PER_PAGE)
+
+      // If loading more, get messages older than the oldest one
+      if (loadMore && oldestMessageId) {
+        const { data: oldestMsg } = await supabase
+          .from('messages')
+          .select('created_at')
+          .eq('id', oldestMessageId)
+          .single()
+        
+        if (oldestMsg) {
+          query = query.lt('created_at', oldestMsg.created_at)
+        }
+      }
+
+      const { data } = await query
 
       if (data) {
-        setMessages(data as Message[])
+        if (loadMore) {
+          setMessages(prev => [...data as Message[], ...prev])
+          if (data.length < MESSAGES_PER_PAGE) {
+            setHasMore(false)
+          }
+          if (data.length > 0) {
+            setOldestMessageId(data[0].id)
+          }
+        } else {
+          setMessages(data as Message[])
+          if (data.length > 0) {
+            setOldestMessageId(data[data.length - 1].id)
+          }
+          if (data.length < MESSAGES_PER_PAGE) {
+            setHasMore(false)
+          }
+        }
       }
     } catch (e) {
       console.error('Load messages error:', e)
     }
     setIsLoading(false)
-  }, [room.id])
+    setIsLoadingMore(false)
+  }, [room.id, oldestMessageId, MESSAGES_PER_PAGE])
+
+  // Load more when scrolling up
+  const loadMoreMessages = useCallback(() => {
+    if (!isLoadingMore && hasMore && !isAtBottom) {
+      loadMessages(true)
+    }
+  }, [isLoadingMore, hasMore, isAtBottom, loadMessages])
 
   // Load room members and check admin status
   const loadMembers = async () => {
@@ -306,6 +356,11 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     setIsAtBottom(atBottom)
     if (atBottom) {
       onUnreadChange?.(0)
+    }
+    
+    // Load more when scrolling near top
+    if (scrollTop < 200 && hasMore && !isLoadingMore) {
+      loadMoreMessages()
     }
   }
 
@@ -832,6 +887,20 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         onScroll={handleScroll}
       >
         <div className="p-4 space-y-4">
+          {/* Load more indicator */}
+          {isLoadingMore && (
+            <div className="flex items-center justify-center py-2">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          
+          {/* No more messages indicator */}
+          {!hasMore && messages.length > 0 && (
+            <div className="flex items-center justify-center py-2">
+              <span className="text-xs text-muted-foreground">Beginning of conversation</span>
+            </div>
+          )}
+          
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
