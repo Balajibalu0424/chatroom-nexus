@@ -22,16 +22,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         {children}
-        <Toaster 
-          position="top-center"
-          toastOptions={{
-            style: {
-              background: 'hsl(var(--background))',
-              color: 'hsl(var(--foreground))',
-              border: '1px solid hsl(var(--border))',
-            },
-          }}
-        />
+        <Toaster position="top-center" />
       </body>
     </html>
   )

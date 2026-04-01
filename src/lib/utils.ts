@@ -29,9 +29,20 @@ function bufferToHex(buffer: ArrayBuffer | Uint8Array): string {
 
 // Hash PIN using SHA-256 with salt
 export async function hashPin(pin: string): Promise<string> {
-  const data = new TextEncoder().encode(pin + SALT)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer)
-  return bufferToHex(hashBuffer)
+  try {
+    const data = new TextEncoder().encode(pin + SALT)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer)
+    return bufferToHex(hashBuffer)
+  } catch (error) {
+    // Fallback to simple hash if Web Crypto fails
+    console.warn('Web Crypto failed, using fallback hash')
+    let hash = 0
+    for (let i = 0; i < pin.length; i++) {
+      hash = ((hash << 5) - hash) + (pin + SALT).charCodeAt(i)
+      hash = hash & hash
+    }
+    return Math.abs(hash).toString(16)
+  }
 }
 
 // Verify PIN against hash
