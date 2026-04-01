@@ -16,7 +16,9 @@ import {
   Edit2,
   Check,
   CheckCheck,
-  Smile
+  Smile,
+  Star,
+  Forward
 } from 'lucide-react'
 
 interface MessageBubbleProps {
@@ -27,6 +29,9 @@ interface MessageBubbleProps {
   onEdit: () => void
   onDelete: () => void
   onReaction: (emoji: string) => void
+  onStar?: () => void
+  onForward?: () => void
+  onCopyLink?: () => void
   searchQuery?: string
   isHighlighted?: boolean
 }
@@ -39,6 +44,9 @@ export function MessageBubble({
   onEdit, 
   onDelete,
   onReaction,
+  onStar,
+  onForward,
+  onCopyLink,
   searchQuery = '',
   isHighlighted = false
 }: MessageBubbleProps) {
@@ -283,14 +291,49 @@ export function MessageBubble({
                 )}
 
                 {!isOwn && !message.is_deleted && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyMessage}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Copy</TooltipContent>
-                  </Tooltip>
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyMessage}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy</TooltipContent>
+                    </Tooltip>
+
+                    {onStar && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStar}>
+                            <Star className={`h-4 w-4 ${message.is_starred ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{message.is_starred ? 'Unstar' : 'Star'}</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {onForward && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onForward}>
+                            <Forward className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Forward</TooltipContent>
+                      </Tooltip>
+                    )}
+
+                    {onCopyLink && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onCopyLink}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Copy Link</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
                 )}
               </TooltipProvider>
             </div>

@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores'
 import { toast } from 'sonner'
-import { Settings, Moon, Bell, Lock, User, LogOut, Trash2, AlertTriangle } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Bell, Lock, User, LogOut, Trash2, AlertTriangle, Upload, Loader2 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/lib/utils'
 
@@ -18,14 +18,12 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelProps) {
-  const { user, logout } = useAuthStore()
+  const { user, logout, settings, updateSettings } = useAuthStore()
   const [username, setUsername] = useState(user?.username || '')
-  const [currentPin, setCurrentPin] = useState('')
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(true)
-  const [notifications, setNotifications] = useState(true)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
   const handleUpdateUsername = async () => {
     if (!username.trim() || !user) return
@@ -69,7 +67,6 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
 
       if (!error) {
         toast.success('PIN updated successfully!')
-        setCurrentPin('')
         setNewPin('')
         setConfirmPin('')
       } else {
@@ -80,19 +77,57 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
     }
   }
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !user) return
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Avatar must be less than 2MB')
+      return
+    }
+
+    setUploadingAvatar(true)
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      const ext = file.name.split('.').pop()
+      const fileName = `avatars/${user.id}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-media')
+        .upload(fileName, file, { upsert: true })
+
+      if (uploadError) {
+        throw uploadError
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(fileName)
+
+      await supabase
+        .from('users')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id)
+
+      toast.success('Avatar updated!')
+    } catch (e) {
+      toast.error('Failed to upload avatar')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
   const handleDeleteAccount = async () => {
     if (!user) return
     
     try {
       const { supabase } = await import('@/lib/supabase')
       
-      // Delete user's messages
       await supabase.from('messages').delete().eq('user_id', user.id)
-      
-      // Delete room memberships
       await supabase.from('room_members').delete().eq('user_id', user.id)
       
-      // Delete user
       const { error } = await supabase.from('users').delete().eq('id', user.id)
 
       if (!error) {
@@ -107,9 +142,26 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
     }
   }
 
+  const applyTheme = (theme: 'light' | 'dark' | 'system') => {
+    updateSettings({ theme })
+    
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else if (theme === 'light') {
+      document.documentElement.classList.remove('dark')
+    } else {
+      // System preference
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
@@ -129,11 +181,23 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
             </h3>
             
             <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarFallback style={{ backgroundColor: user?.avatar_color }} className="text-lg">
-                  {getInitials(user?.username || '?')}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative">
+                <Avatar className="h-16 w-16">
+                  <AvatarFallback style={{ backgroundColor: user?.avatar_color }} className="text-lg">
+                    {getInitials(user?.username || '?')}
+                  </AvatarFallback>
+                </Avatar>
+                <label className="absolute bottom-0 right-0 bg-primary text-primary-foreground rounded-full p-1 cursor-pointer hover:bg-primary/90 transition-colors">
+                  <Upload className="h-3 w-3" />
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                    disabled={uploadingAvatar}
+                  />
+                </label>
+              </div>
               <div className="flex-1">
                 <p className="font-medium">{user?.username}</p>
                 <p className="text-xs text-muted-foreground">Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}</p>
@@ -189,38 +253,89 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
             </div>
           </div>
 
-          {/* Preferences Section */}
+          {/* Appearance Section */}
           <div className="space-y-4">
             <h3 className="text-sm font-medium flex items-center gap-2">
               <Moon className="h-4 w-4" />
-              Preferences
+              Appearance
+            </h3>
+            
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant={settings.theme === 'light' ? 'default' : 'outline'}
+                className="flex flex-col items-center gap-1 h-auto py-3"
+                onClick={() => applyTheme('light')}
+              >
+                <Sun className="h-5 w-5" />
+                <span className="text-xs">Light</span>
+              </Button>
+              
+              <Button
+                variant={settings.theme === 'dark' ? 'default' : 'outline'}
+                className="flex flex-col items-center gap-1 h-auto py-3"
+                onClick={() => applyTheme('dark')}
+              >
+                <Moon className="h-5 w-5" />
+                <span className="text-xs">Dark</span>
+              </Button>
+              
+              <Button
+                variant={settings.theme === 'system' ? 'default' : 'outline'}
+                className="flex flex-col items-center gap-1 h-auto py-3"
+                onClick={() => applyTheme('system')}
+              >
+                <Monitor className="h-5 w-5" />
+                <span className="text-xs">System</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Notifications Section */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium flex items-center gap-2">
+              <Bell className="h-4 w-4" />
+              Notifications
             </h3>
             
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Dark Mode</p>
-                <p className="text-xs text-muted-foreground">Use dark theme</p>
+                <p className="font-medium">Push Notifications</p>
+                <p className="text-xs text-muted-foreground">Receive notifications for new messages</p>
               </div>
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setIsDarkMode(!isDarkMode)}
+                onClick={() => updateSettings({ notifications: !settings.notifications })}
               >
-                {isDarkMode ? 'Dark' : 'Light'}
+                {settings.notifications ? 'On' : 'Off'}
               </Button>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Notifications</p>
-                <p className="text-xs text-muted-foreground">Receive message notifications</p>
+                <p className="font-medium">Sound</p>
+                <p className="text-xs text-muted-foreground">Play sound for new messages</p>
               </div>
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={() => setNotifications(!notifications)}
+                onClick={() => updateSettings({ sound_enabled: !settings.sound_enabled })}
               >
-                {notifications ? 'On' : 'Off'}
+                {settings.sound_enabled ? 'On' : 'Off'}
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Message Preview</p>
+                <p className="text-xs text-muted-foreground">Show message content in notifications</p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => updateSettings({ message_preview: !settings.message_preview })}
+              >
+                {settings.message_preview ? 'On' : 'Off'}
               </Button>
             </div>
           </div>

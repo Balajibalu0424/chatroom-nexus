@@ -5,23 +5,26 @@ import { LoginForm } from '@/components/auth/login-form'
 import { CreateJoinRoom } from '@/components/room/create-join-room'
 import { ChatView } from '@/components/chat/chat-view'
 import { SettingsPanel } from '@/components/chat/settings-panel'
+import { StarredMessages } from '@/components/chat/starred-messages'
 import { useAuthStore } from '@/lib/stores'
 import type { Room } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, MessageCircle, LogOut, Search, Settings, Users, Lock, X } from 'lucide-react'
+import { Plus, MessageCircle, LogOut, Search, Settings, Users, Lock, X, Star, Sun, Moon } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuthStore()
+  const { user, isAuthenticated, logout, settings, updateSettings } = useAuthStore()
   const [rooms, setRooms] = useState<Room[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showCreateJoin, setShowCreateJoin] = useState(false)
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showStarred, setShowStarred] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filteredRooms, setFilteredRooms] = useState<Room[]>([])
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
+  const [onlineUsers, setOnlineUsers] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 100)
@@ -32,13 +35,26 @@ export default function Home() {
     if (!user) return
     try {
       const { supabase } = await import('@/lib/supabase')
+      
+      // Load rooms with last message
       const { data } = await supabase
         .from('room_members')
-        .select('room:rooms(*)')
+        .select(`
+          room:rooms(
+            *,
+            last_message:messages(content, created_at, type, user_id)
+          )
+        `)
         .eq('user_id', user.id)
 
       if (data) {
         const loadedRooms = data.map((m: any) => m.room).filter(Boolean) as Room[]
+        // Sort by last message time
+        loadedRooms.sort((a, b) => {
+          const aTime = a.last_message_at || a.created_at
+          const bTime = b.last_message_at || b.created_at
+          return new Date(bTime).getTime() - new Date(aTime).getTime()
+        })
         setRooms(loadedRooms)
         setFilteredRooms(loadedRooms)
       }
@@ -47,11 +63,47 @@ export default function Home() {
     }
   }, [user])
 
+  // Load online users for each room
+  const loadOnlineUsers = useCallback(async () => {
+    if (!user) return
+    
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data: presenceData } = await supabase
+        .from('presence')
+        .select('room_id, user_id')
+        .eq('status', 'online')
+
+      if (presenceData) {
+        const onlineMap: Record<string, string[]> = {}
+        presenceData.forEach(p => {
+          if (!onlineMap[p.room_id]) onlineMap[p.room_id] = []
+          onlineMap[p.room_id].push(p.user_id)
+        })
+        setOnlineUsers(onlineMap)
+      }
+    } catch (e) {
+      console.error('Load presence error:', e)
+    }
+  }, [user])
+
   useEffect(() => {
     if (isAuthenticated && user) {
       loadRooms()
+      loadOnlineUsers()
+      
+      // Subscribe to presence changes
+      const setupPresence = async () => {
+        const { supabase } = await import('@/lib/supabase')
+        const channel = supabase.channel('global-presence')
+        channel.on('presence', { event: 'sync' }, () => {
+          loadOnlineUsers()
+        })
+        channel.subscribe()
+      }
+      setupPresence()
     }
-  }, [isAuthenticated, user, loadRooms])
+  }, [isAuthenticated, user, loadRooms, loadOnlineUsers])
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -85,6 +137,48 @@ export default function Home() {
   const copyRoomCode = (code: string) => {
     navigator.clipboard.writeText(code)
     toast.success('Room code copied!')
+  }
+
+  const toggleTheme = () => {
+    const newTheme = settings.theme === 'dark' ? 'light' : 'dark'
+    updateSettings({ theme: newTheme })
+    
+    // Apply theme immediately
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }
+
+  const formatLastMessage = (room: Room) => {
+    if (!room.last_message) return 'No messages yet'
+    
+    const msg = room.last_message
+    const prefix = msg.type === 'image' ? '📷 Image' :
+                   msg.type === 'file' ? '📎 File' :
+                   msg.type === 'sticker' ? '� sticker' :
+                   msg.type === 'voice' ? '🎤 Voice' :
+                   msg.content.slice(0, 30)
+    
+    return prefix + (msg.content.length > 30 ? '...' : '')
+  }
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diff = now.getTime() - date.getTime()
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+    
+    if (days === 0) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    } else if (days === 1) {
+      return 'Yesterday'
+    } else if (days < 7) {
+      return date.toLocaleDateString([], { weekday: 'short' })
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    }
   }
 
   if (isLoading) {
@@ -143,10 +237,16 @@ export default function Home() {
               <h1 className="text-lg font-bold">Chatrooms</h1>
             </div>
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)}>
+              <Button variant="ghost" size="icon" onClick={toggleTheme} title="Toggle theme">
+                {settings.theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setShowStarred(true)} title="Starred messages">
+                <Star className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => setShowSettings(true)} title="Settings">
                 <Settings className="h-5 w-5" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
+              <Button variant="ghost" size="icon" onClick={handleLogout} title="Logout">
                 <LogOut className="h-5 w-5" />
               </Button>
             </div>
@@ -200,17 +300,45 @@ export default function Home() {
                 className="p-3 hover:bg-muted/50 cursor-pointer border-b border-muted/20 relative"
                 onClick={() => setSelectedRoom(room)}
               >
+                {/* Unread badge */}
                 {unreadCounts[room.id] ? (
                   <span className="absolute top-2 right-2 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {unreadCounts[room.id] > 9 ? '9+' : unreadCounts[room.id]}
                   </span>
                 ) : null}
+                
                 <div className="flex items-center gap-2 mb-1">
-                  <p className="font-medium truncate">{room.name}</p>
-                  {room.is_locked && <Lock className="h-3 w-3 text-muted-foreground flex-shrink-0" />}
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="text-sm font-semibold text-primary">{room.name[0]?.toUpperCase()}</span>
+                    </div>
+                    {/* Online indicator */}
+                    {onlineUsers[room.id]?.length > 0 && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{room.name}</p>
+                    <p className="text-xs text-muted-foreground font-mono flex items-center gap-1">
+                      {room.is_locked && <Lock className="h-3 w-3" />}
+                      {room.code}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground font-mono">{room.code}</p>
+                
+                <div className="flex items-center justify-between ml-12">
+                  <p className="text-xs text-muted-foreground truncate flex-1 mr-2">
+                    {formatLastMessage(room)}
+                  </p>
+                  <span className="text-xs text-muted-foreground flex-shrink-0">
+                    {room.last_message_at ? formatTime(room.last_message_at) : ''}
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between ml-12 mt-1">
+                  <span className="text-[10px] text-muted-foreground">
+                    {onlineUsers[room.id]?.length || 0} online
+                  </span>
                   <Button 
                     variant="ghost" 
                     size="sm" 
@@ -266,6 +394,13 @@ export default function Home() {
           open={showSettings} 
           onOpenChange={setShowSettings} 
           onLogout={handleLogout}
+        />
+      )}
+
+      {showStarred && (
+        <StarredMessages
+          open={showStarred}
+          onOpenChange={setShowStarred}
         />
       )}
     </div>

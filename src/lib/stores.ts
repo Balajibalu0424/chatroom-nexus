@@ -1,17 +1,27 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { User, Room, Message } from '@/lib/types'
+import type { User, Room, Message, UserSettings } from '@/lib/types'
 import { generateAvatarColor, verifyPin, hashPin } from '@/lib/utils'
 
 interface AuthState {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
+  settings: UserSettings
   login: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   register: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   checkSession: () => Promise<void>
   updateLastSeen: () => Promise<void>
+  updateSettings: (settings: Partial<UserSettings>) => void
+  updateProfile: (updates: Partial<User>) => Promise<void>
+}
+
+const defaultSettings: UserSettings = {
+  theme: 'dark',
+  notifications: true,
+  sound_enabled: true,
+  message_preview: true,
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -20,13 +30,13 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       isLoading: false,
+      settings: defaultSettings,
 
       login: async (username: string, pin: string) => {
         set({ isLoading: true })
         try {
           const { supabase } = await import('@/lib/supabase')
           
-          // Find user by username
           const { data: existingUser, error: fetchError } = await supabase
             .from('users')
             .select('*')
@@ -47,14 +57,12 @@ export const useAuthStore = create<AuthState>()(
             return { success: false, error: 'User not found. Please create an account.' }
           }
 
-          // Verify PIN using Web Crypto
           const isValidPin = await verifyPin(pin, existingUser.pin_hash)
           if (!isValidPin) {
             set({ isLoading: false })
             return { success: false, error: 'Incorrect PIN' }
           }
 
-          // Update last seen
           await supabase
             .from('users')
             .update({ last_seen: new Date().toISOString() })
@@ -74,7 +82,6 @@ export const useAuthStore = create<AuthState>()(
         try {
           const { supabase } = await import('@/lib/supabase')
           
-          // Check if username exists
           const { data: existingUser } = await supabase
             .from('users')
             .select('id')
@@ -86,7 +93,6 @@ export const useAuthStore = create<AuthState>()(
             return { success: false, error: 'Username already taken' }
           }
 
-          // Hash PIN using Web Crypto
           const pinHash = await hashPin(pin)
           const avatarColor = generateAvatarColor()
 
@@ -134,7 +140,6 @@ export const useAuthStore = create<AuthState>()(
           if (freshUser) {
             set({ user: freshUser as User })
           } else {
-            // User was deleted, logout
             set({ user: null, isAuthenticated: false })
           }
         } catch (error) {
@@ -156,10 +161,41 @@ export const useAuthStore = create<AuthState>()(
           console.error('Update last seen error:', error)
         }
       },
+
+      updateSettings: (newSettings) => {
+        set((state) => ({
+          settings: { ...state.settings, ...newSettings }
+        }))
+      },
+
+      updateProfile: async (updates) => {
+        const { user } = get()
+        if (!user) return
+
+        try {
+          const { supabase } = await import('@/lib/supabase')
+          const { data, error } = await supabase
+            .from('users')
+            .update(updates)
+            .eq('id', user.id)
+            .select()
+            .single()
+
+          if (!error && data) {
+            set({ user: data as User })
+          }
+        } catch (error) {
+          console.error('Update profile error:', error)
+        }
+      },
     }),
     {
       name: 'chatroom-auth',
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ 
+        user: state.user, 
+        isAuthenticated: state.isAuthenticated,
+        settings: state.settings,
+      }),
     }
   )
 )
@@ -169,6 +205,7 @@ interface RoomState {
   rooms: Room[]
   messages: Map<string, Message[]>
   typingUsers: Map<string, { userId: string; username: string }[]>
+  starredMessages: Message[]
   setCurrentRoom: (room: Room | null) => void
   addRoom: (room: Room) => void
   updateRoom: (roomId: string, updates: Partial<Room>) => void
@@ -177,6 +214,8 @@ interface RoomState {
   deleteMessage: (roomId: string, messageId: string) => void
   setMessages: (roomId: string, messages: Message[]) => void
   setTypingUsers: (roomId: string, users: { userId: string; username: string }[]) => void
+  addStarredMessage: (message: Message) => void
+  removeStarredMessage: (messageId: string) => void
   clearRoom: () => void
 }
 
@@ -185,6 +224,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   rooms: [],
   messages: new Map(),
   typingUsers: new Map(),
+  starredMessages: [],
 
   setCurrentRoom: (room) => set({ currentRoom: room }),
 
@@ -203,7 +243,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     const roomMessages = state.messages.get(roomId) || []
     const newMessages = new Map(state.messages)
     newMessages.set(roomId, [...roomMessages, message])
-    return { messages: newMessages }
+    
+    // Update last message preview in room
+    const updatedRooms = state.rooms.map(r => 
+      r.id === roomId 
+        ? { ...r, last_message: message, last_message_at: message.created_at }
+        : r
+    )
+    
+    return { messages: newMessages, rooms: updatedRooms }
   }),
 
   updateMessage: (roomId, messageId, updates) => set((state) => {
@@ -235,6 +283,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     newTyping.set(roomId, users)
     return { typingUsers: newTyping }
   }),
+
+  addStarredMessage: (message) => set((state) => ({
+    starredMessages: [...state.starredMessages.filter(m => m.id !== message.id), message]
+  })),
+
+  removeStarredMessage: (messageId) => set((state) => ({
+    starredMessages: state.starredMessages.filter(m => m.id !== messageId)
+  })),
 
   clearRoom: () => set({ currentRoom: null, messages: new Map(), typingUsers: new Map() }),
 }))

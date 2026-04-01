@@ -2,7 +2,9 @@ export interface User {
   id: string
   username: string
   avatar_color: string
+  avatar_url?: string | null
   pin_hash: string
+  bio?: string
   created_at: string
   last_seen: string
 }
@@ -18,13 +20,16 @@ export interface Session {
 export interface Room {
   id: string
   name: string
+  description?: string
   code: string
   pin_hash?: string | null
   created_by?: string | null
   is_locked: boolean
   created_at: string
   last_message?: Message
+  last_message_at?: string
   unread_count?: number
+  member_count?: number
 }
 
 export interface Message {
@@ -36,14 +41,17 @@ export interface Message {
   file_url?: string | null
   file_name?: string | null
   reply_to?: string | null
+  reply_to_message?: Message
   created_at: string
   updated_at?: string | null
   is_deleted?: boolean
+  is_starred?: boolean
   reactions?: MessageReaction[]
   sender?: {
     id?: string
     username: string
     avatar_color: string
+    avatar_url?: string
   }
   status?: 'sending' | 'sent' | 'delivered' | 'seen'
 }
@@ -60,12 +68,22 @@ export interface MessageReaction {
   }
 }
 
+export interface StarredMessage {
+  id: string
+  message_id: string
+  user_id: string
+  created_at: string
+  message?: Message
+}
+
 export interface RoomMember {
   id: string
   room_id: string
   user_id: string
+  role: 'admin' | 'member'
   joined_at: string
   is_online?: boolean
+  is_muted?: boolean
   user?: User
 }
 
@@ -122,4 +140,11 @@ export interface RateLimit {
   action: string
   count: number
   window_start: string
+}
+
+export interface UserSettings {
+  theme: 'light' | 'dark' | 'system'
+  notifications: boolean
+  sound_enabled: boolean
+  message_preview: boolean
 }

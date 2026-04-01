@@ -44,7 +44,9 @@ import {
   Video,
   Info,
   ChevronDown,
-  Quote
+  Quote,
+  Star,
+  Forward
 } from 'lucide-react'
 
 interface ChatViewProps {
@@ -75,6 +77,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<Message[]>([])
   const [searchHighlighted, setSearchHighlighted] = useState<number>(-1)
+  const [showForwardModal, setShowForwardModal] = useState(false)
+  const [forwardMessage, setForwardMessage] = useState<string | null>(null)
+  const [availableRooms, setAvailableRooms] = useState<Room[]>([])
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -510,7 +515,6 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     try {
       const { supabase } = await import('@/lib/supabase')
       
-      // Check if reaction exists
       const { data: existing } = await supabase
         .from('message_reactions')
         .select('id')
@@ -520,27 +524,52 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         .single()
 
       if (existing) {
-        // Remove reaction
-        await supabase
-          .from('message_reactions')
-          .delete()
-          .eq('id', existing.id)
+        await supabase.from('message_reactions').delete().eq('id', existing.id)
       } else {
-        // Add reaction
-        await supabase
-          .from('message_reactions')
-          .insert({
-            message_id: messageId,
-            user_id: user.id,
-            emoji,
-          })
+        await supabase.from('message_reactions').insert({
+          message_id: messageId,
+          user_id: user.id,
+          emoji,
+        })
       }
       
-      // Reload messages to get updated reactions
       loadMessages()
     } catch (e) {
       console.error('Reaction error:', e)
     }
+  }
+
+  const handleStarMessage = async (messageId: string, isStarred: boolean) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      await supabase
+        .from('messages')
+        .update({ is_starred: !isStarred })
+        .eq('id', messageId)
+
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, is_starred: !isStarred } : m
+      ))
+      
+      toast.success(isStarred ? 'Removed from starred' : 'Added to starred')
+    } catch (e) {
+      console.error('Star error:', e)
+      toast.error('Failed to star message')
+    }
+  }
+
+  const handleForwardMessage = async (messageId: string) => {
+    setForwardMessage(messageId)
+    setShowForwardModal(true)
+  }
+
+  const handleCopyLink = async (messageId: string) => {
+    const link = `${window.location.origin}/chat/${room.id}?msg=${messageId}`
+    await navigator.clipboard.writeText(link)
+    toast.success('Message link copied!')
   }
 
   const handleTyping = async (isTyping: boolean) => {
@@ -755,6 +784,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
                         }}
                         onDelete={() => handleDeleteMessage(msg.id)}
                         onReaction={(emoji) => handleReaction(msg.id, emoji)}
+                        onStar={() => handleStarMessage(msg.id, !!msg.is_starred)}
+                        onForward={() => handleForwardMessage(msg.id)}
+                        onCopyLink={() => handleCopyLink(msg.id)}
                         searchQuery={searchQuery}
                         isHighlighted={searchResults[searchHighlighted]?.id === msg.id}
                       />
