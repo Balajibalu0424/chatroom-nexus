@@ -220,6 +220,8 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   // Subscribe to realtime changes
   useEffect(() => {
     let channel: any
+    let presenceChannel: any
+    let typingChannel: any
 
     const setupRealtime = async () => {
       const { supabase } = await import('@/lib/supabase')
@@ -235,6 +237,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
             filter: `room_id=eq.${room.id}`,
           },
           async (payload) => {
+            // Skip if this is our own optimistic message
+            if (payload.new.id.startsWith('temp-')) return
+            
             // Fetch full message with sender and reactions
             const { data: fullMessage } = await supabase
               .from('messages')
@@ -243,7 +248,12 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
               .single()
             
             if (fullMessage) {
-              setMessages(prev => [...prev, fullMessage as Message])
+              // Check if message already exists (avoid duplicates)
+              setMessages(prev => {
+                const exists = prev.some(m => m.id === fullMessage.id)
+                if (exists) return prev
+                return [...prev, fullMessage as Message]
+              })
               
               // Update unread if not at bottom
               if (!isAtBottom && fullMessage.user_id !== user?.id) {
@@ -299,14 +309,14 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         .subscribe()
 
       // Presence channel
-      const presenceChannel = supabase.channel(`presence:${room.id}`)
+      presenceChannel = supabase.channel(`presence:${room.id}`)
       presenceChannel
         .on('presence', { event: 'sync' }, () => {
           const state = presenceChannel.presenceState()
           const users = Object.values(state).flat() as any[]
           setOnlineUsers(users.map(u => u.user_id))
         })
-        .subscribe(async (status) => {
+        .subscribe(async (status: string) => {
           if (status === 'SUBSCRIBED' && user) {
             await presenceChannel.track({
               user_id: user.id,
@@ -318,9 +328,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         })
 
       // Typing indicator channel
-      const typingChannel = supabase.channel(`typing:${room.id}`)
+      typingChannel = supabase.channel(`typing:${room.id}`)
       typingChannel
-        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        .on('broadcast', { event: 'typing' }, ({ payload }: { payload: any }) => {
           if (payload.user_id !== user?.id) {
             setTypingUsers(prev => {
               const filtered = prev.filter(t => t.user_id !== payload.user_id)
@@ -337,9 +347,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     setupRealtime()
 
     return () => {
-      if (channel) {
-        channel.unsubscribe()
-      }
+      // Clean up all channels
+      if (channel) channel.unsubscribe()
+      if (presenceChannel) presenceChannel.unsubscribe()
+      if (typingChannel) typingChannel.unsubscribe()
     }
   }, [room.id, user, isAtBottom, unreadCount, onUnreadChange, loadMessages])
 
@@ -931,24 +942,16 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
                 {group.messages.map((msg, msgIdx) => {
                   const prevMsg = groupIdx === 0 && msgIdx === 0 
                     ? null 
-                    : groupIdx === 0 
-                      ? group.messages[msgIdx - 1]
-                      : groupedMessages[groupIdx - 1].messages[groupedMessages[groupIdx - 1].messages.length - 1]
+                    : msgIdx === 0
+                      ? groupedMessages[groupIdx - 1].messages[groupedMessages[groupIdx - 1].messages.length - 1]
+                      : group.messages[msgIdx - 1]
                   
-                  const showDateDivider = msgIdx === 0
                   const isGrouped = prevMsg && 
                     prevMsg.user_id === msg.user_id &&
                     new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
 
                   return (
                     <div key={msg.id} data-message-id={msg.id}>
-                      {showDateDivider && (
-                        <div className="flex items-center justify-center my-4">
-                          <span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full">
-                            {formatMessageDate(msg.created_at)}
-                          </span>
-                        </div>
-                      )}
                       <MessageBubble
                         message={msg}
                         isOwn={msg.user_id === user?.id}

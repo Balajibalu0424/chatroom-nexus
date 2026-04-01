@@ -137,12 +137,14 @@ export default function Home() {
   const handleRoomJoined = (room: Room) => {
     setShowCreateJoin(false)
     setSelectedRoom(room)
-    loadRooms()
+    // Force reload rooms list
+    setTimeout(() => loadRooms(), 100)
   }
 
   const handleBack = () => {
     setSelectedRoom(null)
-    loadRooms()
+    // Force reload rooms list to show latest message
+    setTimeout(() => loadRooms(), 100)
   }
 
   const copyRoomCode = (code: string) => {
