@@ -1,8 +1,5 @@
 // Sentry error tracking wrapper
-// To enable: 
-// 1. Create free account at https://sentry.io
-// 2. Create a new project (Next.js)
-// 3. Copy the DSN and add SENTRY_DSN to Vercel/Netlify env vars
+// Configured with Sentry DSN from environment
 
 let Sentry: any = null
 
@@ -13,13 +10,13 @@ export function initSentry() {
   import('@sentry/nextjs').then((mod) => {
     Sentry = mod
     Sentry.init({
-      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN || 'https://c2e011c347790fbd896f62d562b6c496@o4511145534750720.ingest.de.sentry.io/4511145554673744',
       enabled: process.env.NODE_ENV === 'production',
       tracesSampleRate: 0.1,
     })
   }).catch(() => {
     // Sentry not configured - that's fine
-    console.warn('Sentry not configured - set NEXT_PUBLIC_SENTRY_DSN to enable error tracking')
+    console.warn('Sentry not configured')
   })
 }
 

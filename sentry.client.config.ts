@@ -1,9 +1,9 @@
 import * as Sentry from '@sentry/nextjs'
 
-const SENTRY_DSN = process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN
+const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN || 'https://c2e011c347790fbd896f62d562b6c496@o4511145534750720.ingest.de.sentry.io/4511145554673744'
 
 Sentry.init({
-  dsn: SENTRY_DSN || 'https://example@sentry.io/1234567',
+  dsn: SENTRY_DSN,
   // Only enable in production
   enabled: process.env.NODE_ENV === 'production',
   
@@ -20,7 +20,7 @@ Sentry.init({
     'ChunkLoadError',
   ],
   
-  // Don't capture these
+  // Don't capture these in development
   denyUrls: [
     /localhost/,
     /127\.0\.0\.1/,
