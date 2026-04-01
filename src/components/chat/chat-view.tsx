@@ -697,7 +697,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMessage(e.target.value)
+    const value = e.target.value
+    if (value.length > 2000) return // Max 2000 chars
+    setMessage(value)
     
     // Send typing indicator
     handleTyping(true)

@@ -6,6 +6,8 @@ import { CreateJoinRoom } from '@/components/room/create-join-room'
 import { ChatView } from '@/components/chat/chat-view'
 import { SettingsPanel } from '@/components/chat/settings-panel'
 import { StarredMessages } from '@/components/chat/starred-messages'
+import { ChatSkeleton } from '@/components/chat/chat-skeleton'
+import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { useAuthStore } from '@/lib/stores'
 import type { Room } from '@/lib/types'
 import { Button } from '@/components/ui/button'
@@ -27,6 +29,7 @@ export default function Home() {
   const [onlineUsers, setOnlineUsers] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
+    // Show skeleton after 100ms to avoid flash for fast loads
     const timer = setTimeout(() => setIsLoading(false), 100)
     return () => clearTimeout(timer)
   }, [])
@@ -217,12 +220,14 @@ export default function Home() {
 
   if (selectedRoom) {
     return (
-      <ChatView 
-        room={selectedRoom} 
-        onBack={handleBack}
-        unreadCount={unreadCounts[selectedRoom.id] || 0}
-        onUnreadChange={(count) => setUnreadCounts(prev => ({ ...prev, [selectedRoom.id]: count }))}
-      />
+      <ErrorBoundary>
+        <ChatView 
+          room={selectedRoom} 
+          onBack={handleBack}
+          unreadCount={unreadCounts[selectedRoom.id] || 0}
+          onUnreadChange={(count) => setUnreadCounts(prev => ({ ...prev, [selectedRoom.id]: count }))}
+        />
+      </ErrorBoundary>
     )
   }
 
