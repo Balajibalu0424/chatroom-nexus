@@ -1,15 +1,16 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores'
 import { toast } from 'sonner'
-import { Settings, Moon, Sun, Monitor, Bell, Lock, User, LogOut, Trash2, AlertTriangle, Upload, Loader2 } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Bell, Lock, User, LogOut, Trash2, AlertTriangle, Upload, Loader2, BellOff } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/lib/utils'
+import { isPushSupported, requestNotificationPermission, subscribeToPush, unsubscribeFromPush } from '@/lib/push-notifications'
 
 interface SettingsPanelProps {
   open: boolean
@@ -18,12 +19,25 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelProps) {
-  const { user, logout, settings, updateSettings } = useAuthStore()
+  const { user, logout, settings, updateSettings, pushSubscription, subscribePush, unsubscribePush } = useAuthStore()
   const [username, setUsername] = useState(user?.username || '')
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [pushSupported, setPushSupported] = useState(false)
+  const [pushEnabled, setPushEnabled] = useState(false)
+  const [loadingPush, setLoadingPush] = useState(false)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setPushSupported(isPushSupported())
+    }
+  }, [])
+
+  useEffect(() => {
+    setPushEnabled(!!pushSubscription)
+  }, [pushSubscription])
 
   const handleUpdateUsername = async () => {
     if (!username.trim() || !user) return
@@ -297,10 +311,48 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
               Notifications
             </h3>
             
+            {pushSupported && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Browser Push</p>
+                  <p className="text-xs text-muted-foreground">
+                    {pushEnabled ? 'Enabled' : 'Click to enable'}
+                  </p>
+                </div>
+                <Button
+                  variant={pushEnabled ? 'default' : 'outline'}
+                  size="sm"
+                  disabled={loadingPush}
+                  onClick={async () => {
+                    setLoadingPush(true)
+                    try {
+                      if (pushEnabled) {
+                        await unsubscribePush()
+                        toast.success('Push notifications disabled')
+                      } else {
+                        const granted = await requestNotificationPermission()
+                        if (granted) {
+                          await subscribePush()
+                          toast.success('Push notifications enabled!')
+                        } else {
+                          toast.error('Permission denied')
+                        }
+                      }
+                    } catch (e) {
+                      toast.error('Failed to update push settings')
+                    }
+                    setLoadingPush(false)
+                  }}
+                >
+                  {loadingPush ? <Loader2 className="h-4 w-4 animate-spin" /> : pushEnabled ? 'Enabled' : 'Enable'}
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Push Notifications</p>
-                <p className="text-xs text-muted-foreground">Receive notifications for new messages</p>
+                <p className="font-medium">In-App Notifications</p>
+                <p className="text-xs text-muted-foreground">Show notification badges</p>
               </div>
               <Button 
                 variant="outline" 

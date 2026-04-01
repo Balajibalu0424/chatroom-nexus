@@ -8,6 +8,7 @@ interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   settings: UserSettings
+  pushSubscription: any
   login: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   register: (username: string, pin: string) => Promise<{ success: boolean; error?: string }>
   logout: () => void
@@ -15,6 +16,8 @@ interface AuthState {
   updateLastSeen: () => Promise<void>
   updateSettings: (settings: Partial<UserSettings>) => void
   updateProfile: (updates: Partial<User>) => Promise<void>
+  subscribePush: () => Promise<void>
+  unsubscribePush: () => Promise<void>
 }
 
 const defaultSettings: UserSettings = {
@@ -31,6 +34,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       settings: defaultSettings,
+      pushSubscription: null,
 
       login: async (username: string, pin: string) => {
         set({ isLoading: true })
@@ -186,6 +190,34 @@ export const useAuthStore = create<AuthState>()(
           }
         } catch (error) {
           console.error('Update profile error:', error)
+        }
+      },
+
+      subscribePush: async () => {
+        const { user } = get()
+        if (!user) return
+
+        try {
+          const { subscribeToPush } = await import('@/lib/push-notifications')
+          const { supabase } = await import('@/lib/supabase')
+          const subscription = await subscribeToPush(user.id, supabase)
+          set({ pushSubscription: subscription })
+        } catch (error) {
+          console.error('Subscribe push error:', error)
+        }
+      },
+
+      unsubscribePush: async () => {
+        const { user } = get()
+        if (!user) return
+
+        try {
+          const { unsubscribeFromPush } = await import('@/lib/push-notifications')
+          const { supabase } = await import('@/lib/supabase')
+          await unsubscribeFromPush(user.id, supabase)
+          set({ pushSubscription: null })
+        } catch (error) {
+          console.error('Unsubscribe push error:', error)
         }
       },
     }),
