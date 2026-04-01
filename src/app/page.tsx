@@ -155,11 +155,7 @@ export default function Home() {
     updateSettings({ theme: newTheme })
     
     // Apply theme immediately
-    if (newTheme === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    document.documentElement.classList.toggle('dark', newTheme === 'dark')
   }
 
   const formatLastMessage = (room: Room) => {

@@ -774,7 +774,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     }, 2000)
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
@@ -1095,7 +1095,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
               ref={inputRef}
               value={message}
               onChange={handleInputChange}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               placeholder={editingMessage ? "Edit message..." : "Type a message..."}
               className="pr-20"
             />
