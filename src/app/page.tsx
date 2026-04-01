@@ -3,18 +3,16 @@
 import { useState, useEffect } from 'react'
 import { LoginForm } from '@/components/auth/login-form'
 import { useAuthStore } from '@/lib/stores'
-import { supabase } from '@/lib/supabase'
 import type { Room } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Plus, MessageCircle, LogOut } from 'lucide-react'
 
-export default function HomeMinimal() {
+export default function Home() {
   const { user, isAuthenticated, logout } = useAuthStore()
   const [rooms, setRooms] = useState<Room[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Small delay to let hydration complete
     const timer = setTimeout(() => setIsLoading(false), 100)
     return () => clearTimeout(timer)
   }, [])
@@ -27,21 +25,17 @@ export default function HomeMinimal() {
   const loadRooms = async () => {
     if (!user) return
     try {
-      const { data, error } = await supabase
+      const { supabase } = await import('@/lib/supabase')
+      const { data } = await supabase
         .from('room_members')
         .select('room:rooms(*)')
         .eq('user_id', user.id)
-
-      if (error) {
-        console.error('Load rooms error:', error)
-        return
-      }
 
       if (data) {
         setRooms(data.map((m: any) => m.room).filter(Boolean))
       }
     } catch (e: any) {
-      console.error('Load rooms catch:', e)
+      console.error('Load rooms error:', e)
     }
   }
 
