@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
 
 interface StickerPickerProps {
-  onSelect: (stickerUrl: string) => void
-  onClose: () => void
+  onSelect: (stickerUrl: string, stickerName: string) => void
+  onClose?: () => void
 }
 
 // Free sticker packs from imgflip
@@ -54,7 +54,9 @@ export function StickerPicker({ onSelect, onClose }: StickerPickerProps) {
               {pack.stickers.map((url, index) => (
                 <button
                   key={index}
-                  onClick={() => onSelect(url)}
+                  onClick={() => {
+                    onSelect(url, pack.stickers.indexOf(url) + 1 + '')
+                  }}
                   className="aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-primary transition-all"
                 >
                   <img 

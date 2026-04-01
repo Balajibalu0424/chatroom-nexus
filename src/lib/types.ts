@@ -7,14 +7,22 @@ export interface User {
   last_seen: string
 }
 
+export interface Session {
+  id: string
+  user_id: string
+  device_info?: string
+  created_at: string
+  last_active: string
+}
+
 export interface Room {
   id: string
   name: string
   code: string
-  pin_hash: string | null
-  created_by: string
-  created_at: string
+  pin_hash?: string | null
+  created_by?: string | null
   is_locked: boolean
+  created_at: string
   last_message?: Message
   unread_count?: number
 }
@@ -25,14 +33,15 @@ export interface Message {
   user_id: string
   content: string
   type: 'text' | 'image' | 'file' | 'sticker' | 'voice'
-  file_url?: string
-  file_name?: string
-  reply_to?: string
+  file_url?: string | null
+  file_name?: string | null
+  reply_to?: string | null
   created_at: string
-  updated_at?: string
+  updated_at?: string | null
   is_deleted?: boolean
   reactions?: MessageReaction[]
   sender?: {
+    id?: string
     username: string
     avatar_color: string
   }
@@ -46,6 +55,7 @@ export interface MessageReaction {
   emoji: string
   created_at: string
   user?: {
+    id?: string
     username: string
   }
 }
@@ -75,4 +85,41 @@ export interface PresenceState {
       online_at: string
     }
   }
+}
+
+export interface Attachment {
+  id: string
+  message_id: string
+  user_id: string
+  file_url: string
+  file_name?: string
+  file_type?: string
+  file_size?: number
+  created_at: string
+}
+
+export interface Sticker {
+  id: string
+  name: string
+  url: string
+  pack: string
+  created_at: string
+}
+
+export interface RoomAccessLog {
+  id: string
+  room_id: string
+  user_id?: string
+  action: string
+  ip_address?: string
+  user_agent?: string
+  created_at: string
+}
+
+export interface RateLimit {
+  id: string
+  identifier: string
+  action: string
+  count: number
+  window_start: string
 }

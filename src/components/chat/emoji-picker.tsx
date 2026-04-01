@@ -9,7 +9,7 @@ const Picker = dynamic(() => import('emoji-picker-react'), { ssr: false })
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void
-  onClose: () => void
+  onClose?: () => void
 }
 
 export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
@@ -24,6 +24,7 @@ export function EmojiPicker({ onSelect, onClose }: EmojiPickerProps) {
       <Picker
         onEmojiClick={(emojiData) => {
           onSelect(emojiData.emoji)
+          onClose?.()
         }}
         height={350}
         width={320}

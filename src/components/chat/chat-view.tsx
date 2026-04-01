@@ -12,11 +12,15 @@ import { StickerPicker } from '@/components/chat/sticker-picker'
 import { MessageBubble } from '@/components/chat/message-bubble'
 import { TypingIndicator } from '@/components/chat/typing-indicator'
 import { ImageUpload } from '@/components/chat/image-upload'
+import { FileUpload } from '@/components/chat/file-upload'
+import { VoiceRecorder } from '@/components/chat/voice-recorder'
+import { SearchMessages } from '@/components/chat/search-messages'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/lib/stores'
 import { formatMessageDate, shouldShowDateDivider, getInitials } from '@/lib/utils'
-import { format } from 'date-fns'
-import type { Message, Room, TypingStatus } from '@/lib/types'
+import { format, isToday, isYesterday, isSameDay } from 'date-fns'
+import type { Message, Room, TypingStatus, PresenceState } from '@/lib/types'
+import { toast } from 'sonner'
 import { 
   Send, 
   Image, 
@@ -32,27 +36,45 @@ import {
   FileText,
   X,
   Check,
-  CheckCheck
+  CheckCheck,
+  Search,
+  Mic,
+  MoreHorizontal,
+  Phone,
+  Video,
+  Info,
+  ChevronDown,
+  Quote
 } from 'lucide-react'
 
 interface ChatViewProps {
   room: Room
   onBack: () => void
+  unreadCount?: number
+  onUnreadChange?: (count: number) => void
 }
 
-export function ChatView({ room, onBack }: ChatViewProps) {
+export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: ChatViewProps) {
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showStickerPicker, setShowStickerPicker] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
+  const [showFileUpload, setShowFileUpload] = useState(false)
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [typingUsers, setTypingUsers] = useState<TypingStatus[]>([])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [isAtBottom, setIsAtBottom] = useState(true)
-  const [unreadCount, setUnreadCount] = useState(0)
   const [copiedCode, setCopiedCode] = useState(false)
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([])
+  const [showMembers, setShowMembers] = useState(false)
+  const [members, setMembers] = useState<any[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Message[]>([])
+  const [searchHighlighted, setSearchHighlighted] = useState<number>(-1)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -62,638 +84,906 @@ export function ChatView({ room, onBack }: ChatViewProps) {
   const user = useAuthStore((state) => state.user)
 
   // Load messages with reactions
-  useEffect(() => {
-    const loadMessages = async () => {
-      setIsLoading(true)
-      
+  const loadMessages = useCallback(async () => {
+    setIsLoading(true)
+    
+    try {
+      const { supabase } = await import('@/lib/supabase')
       const { data } = await supabase
         .from('messages')
         .select(`
           *,
-          sender:users(username, avatar_color),
-          reactions:message_reactions(*, user:users(username))
+          sender:users(id, username, avatar_color),
+          reactions:message_reactions(*, user:users(id, username))
         `)
         .eq('room_id', room.id)
         .order('created_at', { ascending: true })
-        .limit(100)
+        .limit(200)
 
       if (data) {
         setMessages(data as Message[])
       }
-      
-      setIsLoading(false)
+    } catch (e) {
+      console.error('Load messages error:', e)
     }
-
-    loadMessages()
+    setIsLoading(false)
   }, [room.id])
+
+  // Load room members
+  const loadMembers = async () => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { data } = await supabase
+        .from('room_members')
+        .select('*, user:users(id, username, avatar_color, last_seen)')
+        .eq('room_id', room.id)
+
+      if (data) {
+        setMembers(data)
+      }
+    } catch (e) {
+      console.error('Load members error:', e)
+    }
+  }
+
+  useEffect(() => {
+    loadMessages()
+    loadMembers()
+  }, [loadMessages, room.id])
 
   // Subscribe to realtime changes
   useEffect(() => {
-    const channel = supabase
-      .channel(`room:${room.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `room_id=eq.${room.id}`,
-        },
-        async (payload) => {
-          const { data } = await supabase
-            .from('messages')
-            .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
-            .eq('id', payload.new.id)
-            .single()
-          
-          if (data) {
-            setMessages((prev) => {
-              // Avoid duplicates
-              if (prev.some(m => m.id === data.id)) return prev
-              return [...prev, data as Message]
-            })
+    let channel: any
+
+    const setupRealtime = async () => {
+      const { supabase } = await import('@/lib/supabase')
+      
+      channel = supabase
+        .channel(`room:${room.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `room_id=eq.${room.id}`,
+          },
+          async (payload) => {
+            // Fetch full message with sender and reactions
+            const { data: fullMessage } = await supabase
+              .from('messages')
+              .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+              .eq('id', payload.new.id)
+              .single()
             
-            if (!isAtBottom) {
-              setUnreadCount((prev) => prev + 1)
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'messages',
-          filter: `room_id=eq.${room.id}`,
-        },
-        (payload) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === payload.new.id ? { ...m, ...payload.new } : m
-            )
-          )
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'message_reactions',
-        },
-        async (payload) => {
-          // Fetch the full reaction with user info
-          const { data } = await supabase
-            .from('message_reactions')
-            .select(`*, user:users(username)`)
-            .eq('id', payload.new.id)
-            .single()
-          
-          if (data) {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id === payload.new.message_id) {
-                  const existing = m.reactions || []
-                  if (existing.some((r: any) => r.id === data.id)) return m
-                  return { ...m, reactions: [...existing, data] }
-                }
-                return m
-              })
-            )
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'message_reactions',
-        },
-        (payload) => {
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id === payload.old.message_id) {
-                return {
-                  ...m,
-                  reactions: (m.reactions || []).filter((r: any) => r.id !== payload.old.id)
-                }
+            if (fullMessage) {
+              setMessages(prev => [...prev, fullMessage as Message])
+              
+              // Update unread if not at bottom
+              if (!isAtBottom && fullMessage.user_id !== user?.id) {
+                onUnreadChange?.((unreadCount || 0) + 1)
               }
-              return m
-            })
-          )
-        }
-      )
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        const typing = payload.payload as TypingStatus
-        if (typing.user_id !== user?.id) {
-          setTypingUsers((prev) => {
-            const filtered = prev.filter((t) => t.user_id !== typing.user_id)
-            if (typing.is_typing) {
-              return [...filtered, typing]
+              
+              // Scroll to bottom if at bottom
+              if (isAtBottom) {
+                scrollToBottom()
+              }
             }
-            return filtered
-          })
-        }
-      })
-      .subscribe()
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `room_id=eq.${room.id}`,
+          },
+          (payload) => {
+            const updatedMessage = payload.new as Message
+            setMessages(prev => 
+              prev.map(m => m.id === updatedMessage.id ? { ...m, ...updatedMessage } : m)
+            )
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'messages',
+            filter: `room_id=eq.${room.id}`,
+          },
+          (payload) => {
+            setMessages(prev => prev.filter(m => m.id !== payload.old.id))
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'message_reactions',
+          },
+          () => {
+            // Reload reactions for all messages
+            loadMessages()
+          }
+        )
+        .subscribe()
+
+      // Presence channel
+      const presenceChannel = supabase.channel(`presence:${room.id}`)
+      presenceChannel
+        .on('presence', { event: 'sync' }, () => {
+          const state = presenceChannel.presenceState()
+          const users = Object.values(state).flat() as any[]
+          setOnlineUsers(users.map(u => u.user_id))
+        })
+        .subscribe(async (status) => {
+          if (status === 'SUBSCRIBED' && user) {
+            await presenceChannel.track({
+              user_id: user.id,
+              username: user.username,
+              avatar_color: user.avatar_color,
+              online_at: new Date().toISOString(),
+            })
+          }
+        })
+
+      // Typing indicator channel
+      const typingChannel = supabase.channel(`typing:${room.id}`)
+      typingChannel
+        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+          if (payload.user_id !== user?.id) {
+            setTypingUsers(prev => {
+              const filtered = prev.filter(t => t.user_id !== payload.user_id)
+              if (payload.is_typing) {
+                return [...filtered, payload]
+              }
+              return filtered
+            })
+          }
+        })
+        .subscribe()
+    }
+
+    setupRealtime()
 
     return () => {
-      supabase.removeChannel(channel)
+      if (channel) {
+        channel.unsubscribe()
+      }
     }
-  }, [room.id, user?.id, isAtBottom])
-
-  // Auto-scroll
-  useEffect(() => {
-    if (isAtBottom) {
-      scrollToBottom()
-    }
-  }, [messages])
-
-  useEffect(() => {
-    if (isAtBottom) {
-      setUnreadCount(0)
-    }
-  }, [isAtBottom])
+  }, [room.id, user, isAtBottom, unreadCount, onUnreadChange, loadMessages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
+  useEffect(() => {
+    if (isAtBottom) {
+      scrollToBottom()
+    }
+  }, [messages, isAtBottom])
+
   const handleScroll = () => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
-      const atBottom = scrollHeight - scrollTop - clientHeight < 100
-      setIsAtBottom(atBottom)
+    if (!messagesContainerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
+    const atBottom = scrollHeight - scrollTop - clientHeight < 100
+    setIsAtBottom(atBottom)
+    if (atBottom) {
+      onUnreadChange?.(0)
     }
   }
 
-  const sendMessage = async () => {
+  const handleSendMessage = async () => {
     if (!message.trim() && !editingMessage) return
-    
+    if (!user) return
+
+    const trimmedMessage = message.trim()
+    if (!trimmedMessage && !editingMessage) return
+
     try {
+      const { supabase } = await import('@/lib/supabase')
+      
       if (editingMessage) {
+        // Update existing message
         const { error } = await supabase
           .from('messages')
           .update({ 
-            content: message.trim(),
-            updated_at: new Date().toISOString(),
+            content: trimmedMessage, 
+            updated_at: new Date().toISOString() 
           })
           .eq('id', editingMessage.id)
-          .eq('user_id', user!.id)
+          .eq('user_id', user.id)
 
         if (!error) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === editingMessage.id
-                ? { ...m, content: message.trim(), updated_at: new Date().toISOString() }
-                : m
-            )
-          )
+          setMessages(prev => prev.map(m => 
+            m.id === editingMessage.id 
+              ? { ...m, content: trimmedMessage, updated_at: new Date().toISOString() }
+              : m
+          ))
         }
-        
         setEditingMessage(null)
       } else {
-        const { data } = await supabase
+        // Optimistic UI
+        const tempId = `temp-${Date.now()}`
+        const optimisticMessage: Message = {
+          id: tempId,
+          room_id: room.id,
+          user_id: user.id,
+          content: trimmedMessage,
+          type: 'text',
+          created_at: new Date().toISOString(),
+          sender: { username: user.username, avatar_color: user.avatar_color },
+          status: 'sending' as const,
+          reply_to: replyTo?.id || undefined,
+        }
+        
+        setMessages(prev => [...prev, optimisticMessage])
+        setReplyTo(null)
+        scrollToBottom()
+
+        // Send to server
+        const { data, error } = await supabase
           .from('messages')
           .insert({
             room_id: room.id,
-            user_id: user!.id,
-            content: message.trim(),
+            user_id: user.id,
+            content: trimmedMessage,
             type: 'text',
             reply_to: replyTo?.id || null,
           })
-          .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
+          .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
           .single()
 
-        if (data) {
-          setMessages((prev) => [...prev, data as Message])
+        if (!error && data) {
+          // Replace optimistic message with real one
+          setMessages(prev => prev.map(m => m.id === tempId ? data as Message : m))
+        } else {
+          // Remove optimistic message on error
+          setMessages(prev => prev.filter(m => m.id !== tempId))
+          toast.error('Failed to send message')
         }
       }
-      
+
       setMessage('')
-      setReplyTo(null)
-      sendTypingStatus(false)
-      inputRef.current?.focus()
-    } catch (error) {
-      console.error('Send message error:', error)
+    } catch (e) {
+      console.error('Send message error:', e)
+      toast.error('Failed to send message')
     }
   }
 
-  const sendTypingStatus = useCallback((isTyping: boolean) => {
+  const handleSendImage = async (url: string, fileName: string) => {
     if (!user) return
-    
-    supabase.channel(`room:${room.id}`).send({
-      type: 'broadcast',
-      event: 'typing',
-      payload: {
-        room_id: room.id,
-        user_id: user.id,
-        username: user.username,
-        is_typing: isTyping,
-        updated_at: new Date().toISOString(),
-      },
-    })
-  }, [room.id, user])
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          room_id: room.id,
+          user_id: user.id,
+          content: fileName,
+          type: 'image',
+          file_url: url,
+          file_name: fileName,
+          reply_to: replyTo?.id || null,
+        })
+        .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+        .single()
+
+      if (!error && data) {
+        setMessages(prev => [...prev, data as Message])
+        scrollToBottom()
+      }
+      
+      setShowImageUpload(false)
+      setReplyTo(null)
+    } catch (e) {
+      console.error('Send image error:', e)
+      toast.error('Failed to send image')
+    }
+  }
+
+  const handleSendFile = async (url: string, fileName: string, fileType: string, fileSize: number) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          room_id: room.id,
+          user_id: user.id,
+          content: fileName,
+          type: 'file',
+          file_url: url,
+          file_name: fileName,
+          reply_to: replyTo?.id || null,
+        })
+        .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+        .single()
+
+      if (!error && data) {
+        setMessages(prev => [...prev, data as Message])
+        scrollToBottom()
+      }
+      
+      setShowFileUpload(false)
+      setReplyTo(null)
+    } catch (e) {
+      console.error('Send file error:', e)
+      toast.error('Failed to send file')
+    }
+  }
+
+  const handleSendVoice = async (url: string, duration: number) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          room_id: room.id,
+          user_id: user.id,
+          content: `Voice message (${Math.round(duration)}s)`,
+          type: 'voice',
+          file_url: url,
+          reply_to: replyTo?.id || null,
+        })
+        .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+        .single()
+
+      if (!error && data) {
+        setMessages(prev => [...prev, data as Message])
+        scrollToBottom()
+      }
+      
+      setShowVoiceRecorder(false)
+      setReplyTo(null)
+    } catch (e) {
+      console.error('Send voice error:', e)
+      toast.error('Failed to send voice message')
+    }
+  }
+
+  const handleSendSticker = async (url: string, stickerName: string) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          room_id: room.id,
+          user_id: user.id,
+          content: stickerName,
+          type: 'sticker',
+          file_url: url,
+        })
+        .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+        .single()
+
+      if (!error && data) {
+        setMessages(prev => [...prev, data as Message])
+        scrollToBottom()
+      }
+      
+      setShowStickerPicker(false)
+    } catch (e) {
+      console.error('Send sticker error:', e)
+      toast.error('Failed to send sticker')
+    }
+  }
+
+  const handleDeleteMessage = async (messageId: string) => {
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      await supabase
+        .from('messages')
+        .update({ is_deleted: true, content: 'This message was deleted' })
+        .eq('id', messageId)
+        .eq('user_id', user!.id)
+
+      setMessages(prev => prev.map(m => 
+        m.id === messageId 
+          ? { ...m, is_deleted: true, content: 'This message was deleted' }
+          : m
+      ))
+      toast.success('Message deleted')
+    } catch (e) {
+      console.error('Delete message error:', e)
+      toast.error('Failed to delete message')
+    }
+  }
+
+  const handleReaction = async (messageId: string, emoji: string) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      // Check if reaction exists
+      const { data: existing } = await supabase
+        .from('message_reactions')
+        .select('id')
+        .eq('message_id', messageId)
+        .eq('user_id', user.id)
+        .eq('emoji', emoji)
+        .single()
+
+      if (existing) {
+        // Remove reaction
+        await supabase
+          .from('message_reactions')
+          .delete()
+          .eq('id', existing.id)
+      } else {
+        // Add reaction
+        await supabase
+          .from('message_reactions')
+          .insert({
+            message_id: messageId,
+            user_id: user.id,
+            emoji,
+          })
+      }
+      
+      // Reload messages to get updated reactions
+      loadMessages()
+    } catch (e) {
+      console.error('Reaction error:', e)
+    }
+  }
+
+  const handleTyping = async (isTyping: boolean) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const channel = supabase.channel(`typing:${room.id}`)
+      
+      channel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: {
+          room_id: room.id,
+          user_id: user.id,
+          username: user.username,
+          is_typing: isTyping,
+          updated_at: new Date().toISOString(),
+        },
+      })
+    } catch (e) {
+      console.error('Typing error:', e)
+    }
+  }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setMessage(e.target.value)
-    sendTypingStatus(true)
     
+    // Send typing indicator
+    handleTyping(true)
+    
+    // Clear previous timeout
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current)
     }
     
+    // Set timeout to stop typing
     typingTimeoutRef.current = setTimeout(() => {
-      sendTypingStatus(false)
+      handleTyping(false)
     }, 2000)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      sendMessage()
+      handleSendMessage()
     }
   }
 
-  const handleEmojiSelect = (emoji: string) => {
-    setMessage((prev) => prev + emoji)
-    setShowEmojiPicker(false)
-    inputRef.current?.focus()
-  }
-
-  const handleStickerSelect = async (stickerUrl: string) => {
-    try {
-      const { data } = await supabase
-        .from('messages')
-        .insert({
-          room_id: room.id,
-          user_id: user!.id,
-          content: stickerUrl,
-          type: 'sticker',
-        })
-        .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
-        .single()
-
-      if (data) {
-        setMessages((prev) => [...prev, data as Message])
-      }
-      
-      setShowStickerPicker(false)
-    } catch (error) {
-      console.error('Send sticker error:', error)
-    }
-  }
-
-  const handleImageUpload = async (url: string, fileName: string) => {
-    try {
-      const { data } = await supabase
-        .from('messages')
-        .insert({
-          room_id: room.id,
-          user_id: user!.id,
-          content: url,
-          type: 'image',
-          file_url: url,
-          file_name: fileName,
-          reply_to: replyTo?.id || null,
-        })
-        .select(`*, sender:users(username, avatar_color), reactions:message_reactions(*, user:users(username))`)
-        .single()
-
-      if (data) {
-        setMessages((prev) => [...prev, data as Message])
-      }
-      
-      setShowImageUpload(false)
-      setReplyTo(null)
-    } catch (error) {
-      console.error('Send image error:', error)
-    }
-  }
-
-  const handleDeleteMessage = async (messageId: string) => {
-    try {
-      await supabase
-        .from('messages')
-        .update({ is_deleted: true })
-        .eq('id', messageId)
-        .eq('user_id', user!.id)
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId ? { ...m, is_deleted: true, content: 'This message was deleted' } : m
-        )
-      )
-    } catch (error) {
-      console.error('Delete message error:', error)
-    }
-  }
-
-  const handleEditMessage = (message: Message) => {
-    setEditingMessage(message)
-    setMessage(message.content)
-    inputRef.current?.focus()
-  }
-
-  const handleReply = (message: Message) => {
-    setReplyTo(message)
-    inputRef.current?.focus()
-  }
-
-  const handleCopyCode = () => {
+  const copyRoomCode = () => {
     navigator.clipboard.writeText(room.code)
     setCopiedCode(true)
+    toast.success('Room code copied!')
     setTimeout(() => setCopiedCode(false), 2000)
   }
 
-  const copyMessageContent = (content: string) => {
-    navigator.clipboard.writeText(content)
-  }
-
-  const handleReactionUpdate = async (messageId: string) => {
-    const { data } = await supabase
-      .from('message_reactions')
-      .select(`*, user:users(username)`)
-      .eq('message_id', messageId)
-    
-    if (data) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId ? { ...m, reactions: data } : m
-        )
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    if (query.trim()) {
+      const results = messages.filter(m => 
+        m.content.toLowerCase().includes(query.toLowerCase())
       )
+      setSearchResults(results)
+      setSearchHighlighted(-1)
+    } else {
+      setSearchResults([])
     }
   }
 
-  const cancelEdit = () => {
-    setEditingMessage(null)
-    setMessage('')
+  const scrollToSearchResult = (index: number) => {
+    setSearchHighlighted(index)
+    // Find message in DOM and scroll to it
+    const messageElements = messagesContainerRef.current?.querySelectorAll('[data-message-id]')
+    if (messageElements && messageElements[index]) {
+      messageElements[index].scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
   }
 
-  const otherTypingUsers = typingUsers.filter((t) => t.is_typing && t.user_id !== user?.id)
+  // Group messages by date
+  const groupedMessages: { date: string; messages: Message[] }[] = []
+  let currentDate = ''
+
+  messages.forEach((msg, idx) => {
+    const msgDate = format(new Date(msg.created_at), 'yyyy-MM-dd')
+    if (msgDate !== currentDate) {
+      currentDate = msgDate
+      groupedMessages.push({ date: msgDate, messages: [msg] })
+    } else {
+      groupedMessages[groupedMessages.length - 1].messages.push(msg)
+    }
+  })
 
   return (
-    <TooltipProvider>
-      <div className="flex flex-col h-full bg-background relative">
-        {/* Header */}
-        <div className="flex items-center gap-3 p-3 lg:p-4 border-b bg-background shrink-0">
-          <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          
-          <Avatar className="h-10 w-10 shrink-0">
-            <AvatarFallback 
-              style={{ backgroundColor: room.is_locked ? '#ef4444' : '#22c55e' }}
-              className="text-white font-medium"
-            >
-              {room.name.slice(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          
-          <div className="flex-1 min-w-0">
-            <h2 className="font-semibold truncate">{room.name}</h2>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              {room.is_locked ? (
-                <Lock className="h-3 w-3 shrink-0" />
-              ) : (
-                <Users className="h-3 w-3 shrink-0" />
-              )}
-              <span className="font-mono">{room.code}</span>
-              <button
-                onClick={handleCopyCode}
-                className="hover:text-foreground transition-colors p-0.5"
-              >
-                {copiedCode ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </button>
-            </div>
+    <div className="h-screen flex flex-col bg-background">
+      {/* Header */}
+      <div className="h-16 border-b bg-background flex items-center px-4 gap-3">
+        <Button variant="ghost" size="icon" onClick={onBack}>
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        
+        <div className="flex-1 flex items-center gap-3 cursor-pointer" onClick={() => setShowMembers(true)}>
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <span className="text-lg font-semibold text-primary">{room.name[0]?.toUpperCase()}</span>
           </div>
+          <div>
+            <p className="font-semibold">{room.name}</p>
+            <p className="text-xs text-muted-foreground">
+              {onlineUsers.length} online • {room.code}
+            </p>
+          </div>
+        </div>
 
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setShowSearch(!showSearch)}>
+            <Search className="h-5 w-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setShowMembers(true)}>
+            <Users className="h-5 w-5" />
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0">
+              <Button variant="ghost" size="icon">
                 <MoreVertical className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleCopyCode}>
+              <DropdownMenuItem onClick={copyRoomCode}>
                 <Copy className="h-4 w-4 mr-2" />
-                Copy Room Code
+                {copiedCode ? 'Copied!' : 'Copy Room Code'}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Leave Room
+              <DropdownMenuItem onClick={() => setShowMembers(true)}>
+                <Users className="h-4 w-4 mr-2" />
+                View Members
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+      </div>
 
-        {/* Messages */}
-        <ScrollArea 
-          ref={messagesContainerRef}
-          className="flex-1"
-          onScroll={handleScroll}
-        >
-          <div className="p-4 space-y-4 min-h-full">
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center h-full py-20">
-                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3" />
-                <p className="text-sm text-muted-foreground">Loading messages...</p>
+      {/* Search Bar */}
+      {showSearch && (
+        <div className="border-b p-3 bg-muted/30">
+          <SearchMessages 
+            onSearch={handleSearch}
+            results={searchResults}
+            onResultClick={(idx) => scrollToSearchResult(idx)}
+            highlighted={searchHighlighted}
+          />
+        </div>
+      )}
+
+      {/* Messages Area */}
+      <ScrollArea 
+        className="flex-1" 
+        ref={messagesContainerRef as any}
+        onScroll={handleScroll}
+      >
+        <div className="p-4 space-y-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <MessageCircle className="h-8 w-8 text-muted-foreground" />
               </div>
-            ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full py-20 text-center">
-                <div className="text-6xl mb-4">💬</div>
-                <p className="text-lg font-medium mb-1">No messages yet</p>
-                <p className="text-sm text-muted-foreground">Send the first message to start the conversation!</p>
-              </div>
-            ) : (
-              <>
-                {messages.map((msg, index) => {
-                  const prevMsg = index > 0 ? messages[index - 1] : null
-                  const showDateDivider = shouldShowDateDivider(messages, index)
-                  const isOwn = msg.user_id === user?.id
+              <p className="text-lg font-medium mb-1">No messages yet</p>
+              <p className="text-sm text-muted-foreground">
+                Start the conversation by sending a message!
+              </p>
+            </div>
+          ) : (
+            groupedMessages.map((group, groupIdx) => (
+              <div key={group.date}>
+                <div className="flex items-center justify-center my-4">
+                  <span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full">
+                    {formatMessageDate(group.date)}
+                  </span>
+                </div>
+                
+                {group.messages.map((msg, msgIdx) => {
+                  const prevMsg = groupIdx === 0 && msgIdx === 0 
+                    ? null 
+                    : groupIdx === 0 
+                      ? group.messages[msgIdx - 1]
+                      : groupedMessages[groupIdx - 1].messages[groupedMessages[groupIdx - 1].messages.length - 1]
+                  
+                  const showDateDivider = msgIdx === 0
                   const isGrouped = prevMsg && 
-                    prevMsg.user_id === msg.user_id && 
+                    prevMsg.user_id === msg.user_id &&
                     new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 60000
 
                   return (
-                    <div key={msg.id}>
+                    <div key={msg.id} data-message-id={msg.id}>
                       {showDateDivider && (
-                        <div className="flex items-center gap-4 my-4">
-                          <div className="flex-1 h-px bg-border" />
-                          <span className="text-xs text-muted-foreground bg-background px-2 py-0.5 rounded-full">
+                        <div className="flex items-center justify-center my-4">
+                          <span className="bg-muted text-muted-foreground text-xs px-3 py-1 rounded-full">
                             {formatMessageDate(msg.created_at)}
                           </span>
-                          <div className="flex-1 h-px bg-border" />
                         </div>
                       )}
-                      
                       <MessageBubble
                         message={msg}
-                        isOwn={isOwn}
+                        isOwn={msg.user_id === user?.id}
                         isGrouped={!!isGrouped}
-                        onEdit={() => handleEditMessage(msg)}
+                        onReply={() => setReplyTo(msg)}
+                        onEdit={() => {
+                          setEditingMessage(msg)
+                          setMessage(msg.content)
+                        }}
                         onDelete={() => handleDeleteMessage(msg.id)}
-                        onReply={() => handleReply(msg)}
-                        onCopy={() => copyMessageContent(msg.content)}
-                        onReactionUpdate={() => handleReactionUpdate(msg.id)}
+                        onReaction={(emoji) => handleReaction(msg.id, emoji)}
+                        searchQuery={searchQuery}
+                        isHighlighted={searchResults[searchHighlighted]?.id === msg.id}
                       />
                     </div>
                   )
                 })}
-                
-                {otherTypingUsers.length > 0 && (
-                  <TypingIndicator users={otherTypingUsers.map((t) => t.username)} />
-                )}
-              </>
-            )}
-          </div>
-          <div ref={messagesEndRef} />
-        </ScrollArea>
-
-        {/* Unread badge */}
-        {!isAtBottom && unreadCount > 0 && (
-          <button
-            onClick={() => {
-              scrollToBottom()
-              setIsAtBottom(true)
-            }}
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground px-4 py-2 rounded-full text-sm font-medium shadow-lg animate-bounce z-10 flex items-center gap-2"
-          >
-            <ChevronDown className="h-4 w-4" />
-            {unreadCount} new message{unreadCount > 1 ? 's' : ''}
-          </button>
-        )}
-
-        {/* Reply preview */}
-        {replyTo && (
-          <div className="px-4 py-2 bg-muted/50 border-t flex items-center gap-3 shrink-0">
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-primary font-medium">Replying to {replyTo.sender?.username}</p>
-              <p className="text-sm text-muted-foreground truncate">{replyTo.content}</p>
+              </div>
+            ))
+          )}
+          
+          {typingUsers.length > 0 && (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <TypingIndicator users={typingUsers.map(t => t.username)} />
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setReplyTo(null)}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
+      </ScrollArea>
 
-        {/* Edit indicator */}
-        {editingMessage && (
-          <div className="px-4 py-2 bg-primary/10 border-t flex items-center gap-3 shrink-0">
-            <Edit2 className="h-4 w-4 text-primary" />
-            <span className="text-sm flex-1 text-primary font-medium">Editing message</span>
-            <Button variant="ghost" size="sm" onClick={cancelEdit}>
-              Cancel
-            </Button>
-          </div>
-        )}
+      {/* Jump to bottom button */}
+      {!isAtBottom && (
+        <Button 
+          className="absolute bottom-24 right-8 rounded-full shadow-lg"
+          size="icon"
+          onClick={() => {
+            scrollToBottom()
+            onUnreadChange?.(0)
+          }}
+        >
+          {unreadCount > 0 ? (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          ) : (
+            <ChevronDown className="h-5 w-5" />
+          )}
+        </Button>
+      )}
 
-        {/* Input area */}
-        <div className="p-3 lg:p-4 border-t bg-background shrink-0">
-          <div className="flex items-end gap-2">
-            {/* Left tools */}
-            <div className="flex gap-1 shrink-0">
+      {/* Reply Preview */}
+      {replyTo && (
+        <div className="border-t bg-muted/30 px-4 py-2 flex items-center gap-2">
+          <Quote className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground truncate flex-1">
+            Reply to {replyTo.sender?.username}: {replyTo.content.slice(0, 50)}...
+          </span>
+          <Button variant="ghost" size="icon" onClick={() => setReplyTo(null)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
+      {/* Composer */}
+      <div className="border-t bg-background p-3">
+        <div className="flex items-end gap-2">
+          <div className="flex items-center gap-1">
+            <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    onClick={() => setShowImageUpload(!showImageUpload)}
-                    className="h-10 w-10"
-                  >
+                  <Button variant="ghost" size="icon" onClick={() => setShowImageUpload(true)}>
                     <Image className="h-5 w-5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Photo</TooltipContent>
+                <TooltipContent>Send Image</TooltipContent>
               </Tooltip>
-              
+            </TooltipProvider>
+
+            <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
-                    size="icon"
-                    onClick={() => setShowStickerPicker(!showStickerPicker)}
-                    className="h-10 w-10"
-                  >
-                    <Sticker className="h-5 w-5" />
+                  <Button variant="ghost" size="icon" onClick={() => setShowFileUpload(true)}>
+                    <FileText className="h-5 w-5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Stickers</TooltipContent>
+                <TooltipContent>Send File</TooltipContent>
               </Tooltip>
-            </div>
+            </TooltipProvider>
 
-            {/* Main input */}
-            <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                value={message}
-                onChange={handleInputChange}
-                onKeyPress={handleKeyPress}
-                placeholder="Message..."
-                className="pr-16 h-11"
-              />
-              
-              <div className="absolute right-1.5 bottom-1.5 flex gap-0.5">
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="h-8 w-8"
-                >
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={() => setShowVoiceRecorder(true)}>
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Voice Message</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <DropdownMenu open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
                   <Smile className="h-5 w-5" />
                 </Button>
-              </div>
-            </div>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="mb-2">
+                <EmojiPicker onSelect={(emoji) => {
+                  setMessage(prev => prev + emoji)
+                  inputRef.current?.focus()
+                }} />
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            {/* Send button */}
-            <Button 
-              onClick={sendMessage}
-              disabled={!message.trim()}
-              size="icon"
-              className="h-11 w-11 shrink-0"
-            >
-              <Send className="h-5 w-5" />
-            </Button>
+            <DropdownMenu open={showStickerPicker} onOpenChange={setShowStickerPicker}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <Sticker className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="mb-2">
+                <StickerPicker onSelect={handleSendSticker} />
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          {/* Tooltip popups */}
-          {showEmojiPicker && (
-            <div className="absolute bottom-full right-4 lg:right-auto lg:left-4 mb-2 z-20">
-              <EmojiPicker onSelect={handleEmojiSelect} onClose={() => setShowEmojiPicker(false)} />
-            </div>
-          )}
+          <div className="flex-1 relative">
+            {editingMessage && (
+              <div className="absolute -top-8 left-0 right-0 bg-muted rounded-t-lg px-3 py-1 flex items-center justify-between">
+                <span className="text-xs">Editing message</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                  setEditingMessage(null)
+                  setMessage('')
+                }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+            <Input
+              ref={inputRef}
+              value={message}
+              onChange={handleInputChange}
+              onKeyPress={handleKeyPress}
+              placeholder={editingMessage ? "Edit message..." : "Type a message..."}
+              className="pr-20"
+            />
+          </div>
 
-          {showStickerPicker && (
-            <div className="absolute bottom-full right-4 mb-2 z-20">
-              <StickerPicker onSelect={handleStickerSelect} onClose={() => setShowStickerPicker(false)} />
-            </div>
-          )}
-
-          {showImageUpload && (
-            <div className="absolute bottom-full right-4 mb-2 z-20">
-              <ImageUpload 
-                onUpload={handleImageUpload} 
-                onClose={() => setShowImageUpload(false)} 
-              />
-            </div>
+          {message.trim() || editingMessage ? (
+            <Button size="icon" onClick={handleSendMessage}>
+              <Send className="h-5 w-5" />
+            </Button>
+          ) : (
+            <Button size="icon" variant="secondary">
+              <Mic className="h-5 w-5" />
+            </Button>
           )}
         </div>
       </div>
-    </TooltipProvider>
+
+      {/* Modals */}
+      {showImageUpload && (
+        <ImageUpload 
+          open={showImageUpload} 
+          onOpenChange={setShowImageUpload}
+          onUpload={handleSendImage}
+        />
+      )}
+
+      {showFileUpload && (
+        <FileUpload
+          open={showFileUpload}
+          onOpenChange={setShowFileUpload}
+          onUpload={handleSendFile}
+        />
+      )}
+
+      {showVoiceRecorder && (
+        <VoiceRecorder
+          open={showVoiceRecorder}
+          onOpenChange={setShowVoiceRecorder}
+          onSend={handleSendVoice}
+        />
+      )}
+
+      {/* Members Panel */}
+      {showMembers && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowMembers(false)} />
+          <div className="relative w-80 bg-background h-full shadow-xl overflow-y-auto">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="font-semibold">Members ({members.length})</h2>
+              <Button variant="ghost" size="icon" onClick={() => setShowMembers(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="p-4 space-y-3">
+              {members.map(member => (
+                <div key={member.id} className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback style={{ backgroundColor: member.user?.avatar_color }}>
+                      {getInitials(member.user?.username || '?')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1">
+                    <p className="font-medium">{member.user?.username}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {onlineUsers.includes(member.user?.id) ? (
+                        <span className="text-green-500">Online</span>
+                      ) : (
+                        'Offline'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
-function ChevronDown({ className }: { className?: string }) {
+function MessageCircle(props: React.SVGProps<SVGSVGElement> & { className?: string }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="m6 9 6 6 6-6"/>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   )
 }

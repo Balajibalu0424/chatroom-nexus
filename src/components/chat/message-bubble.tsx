@@ -1,311 +1,353 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { formatMessageTime, getInitials } from '@/lib/utils'
-import { Copy, Check, MoreHorizontal, Trash2, Edit2, Reply, Smile, Heart } from 'lucide-react'
+import { EmojiPicker } from '@/components/chat/emoji-picker'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import { getInitials } from '@/lib/utils'
 import type { Message } from '@/lib/types'
-import { useAuthStore } from '@/lib/stores'
-import { supabase } from '@/lib/supabase'
-import { toast } from 'sonner'
+import { 
+  MoreVertical, 
+  Reply, 
+  Copy, 
+  Trash2, 
+  Edit2,
+  Check,
+  CheckCheck,
+  Smile
+} from 'lucide-react'
 
 interface MessageBubbleProps {
   message: Message
   isOwn: boolean
   isGrouped: boolean
+  onReply: () => void
   onEdit: () => void
   onDelete: () => void
-  onReply: () => void
-  onCopy: () => void
-  onReactionUpdate?: () => void
+  onReaction: (emoji: string) => void
+  searchQuery?: string
+  isHighlighted?: boolean
 }
 
-const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
-
-export function MessageBubble({
-  message,
-  isOwn,
-  isGrouped,
-  onEdit,
+export function MessageBubble({ 
+  message, 
+  isOwn, 
+  isGrouped, 
+  onReply, 
+  onEdit, 
   onDelete,
-  onReply,
-  onCopy,
-  onReactionUpdate,
+  onReaction,
+  searchQuery = '',
+  isHighlighted = false
 }: MessageBubbleProps) {
-  const [copied, setCopied] = useState(false)
-  const [showReactionPicker, setShowReactionPicker] = useState(false)
-  const user = useAuthStore((state) => state.user)
+  const [showReactions, setShowReactions] = useState(false)
 
-  const handleCopy = () => {
-    onCopy()
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  // Group reactions by emoji
+  const groupedReactions = useMemo(() => {
+    if (!message.reactions?.length) return []
+    
+    const groups: { [key: string]: { count: number; users: string[]; hasReacted: boolean } } = {}
+    
+    message.reactions.forEach(r => {
+      if (!groups[r.emoji]) {
+        groups[r.emoji] = { count: 0, users: [], hasReacted: false }
+      }
+      groups[r.emoji].count++
+      if (r.user?.username) {
+        groups[r.emoji].users.push(r.user.username)
+      }
+    })
+    
+    return Object.entries(groups).map(([emoji, data]) => ({
+      emoji,
+      ...data
+    }))
+  }, [message.reactions])
+
+  const highlightText = (text: string) => {
+    if (!searchQuery) return text
+    
+    const parts = text.split(new RegExp(`(${searchQuery})`, 'gi'))
+    return parts.map((part, i) => 
+      part.toLowerCase() === searchQuery.toLowerCase() ? (
+        <mark key={i} className="bg-yellow-500/50 rounded px-0.5">{part}</mark>
+      ) : part
+    )
   }
 
-  const handleReaction = async (emoji: string) => {
-    if (!user) return
-    
-    try {
-      // Check if user already reacted with this emoji
-      const existing = message.reactions?.find(
-        r => r.user_id === user.id && r.emoji === emoji
-      )
+  const copyMessage = () => {
+    navigator.clipboard.writeText(message.content)
+  }
 
-      if (existing) {
-        // Remove reaction
-        await supabase
-          .from('message_reactions')
-          .delete()
-          .eq('id', existing.id)
-      } else {
-        // Add reaction
-        await supabase
-          .from('message_reactions')
-          .insert({
-            message_id: message.id,
-            user_id: user.id,
-            emoji,
-          })
-      }
-      
-      setShowReactionPicker(false)
-      onReactionUpdate?.()
-    } catch (error) {
-      console.error('Reaction error:', error)
-      toast.error('Failed to add reaction')
+  const formatTime = (date: string) => {
+    return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const getStatusIcon = () => {
+    if (!isOwn) return null
+    
+    switch (message.status) {
+      case 'sending':
+        return <span className="text-muted-foreground text-xs">Sending...</span>
+      case 'sent':
+        return <Check className="h-3 w-3 text-muted-foreground" />
+      case 'delivered':
+        return <CheckCheck className="h-3 w-3 text-muted-foreground" />
+      case 'seen':
+        return <CheckCheck className="h-3 w-3 text-primary" />
+      default:
+        return null
     }
   }
 
-  const handleDeleteMessage = async () => {
-    if (!confirm('Delete this message?')) return
-    onDelete()
-  }
+  const renderContent = () => {
+    if (message.is_deleted) {
+      return (
+        <p className="italic text-muted-foreground text-sm">
+          {message.content}
+        </p>
+      )
+    }
 
-  // Group reactions by emoji and count
-  const groupedReactions = message.reactions?.reduce((acc, r) => {
-    if (!acc[r.emoji]) acc[r.emoji] = []
-    acc[r.emoji].push(r)
-    return acc
-  }, {} as Record<string, typeof message.reactions>) || {}
-
-  if (message.type === 'sticker') {
-    return (
-      <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-1' : 'mt-4'}`}>
-        <div className={`max-w-[200px] ${isOwn ? 'order-2' : ''}`}>
-          <img 
-            src={message.content} 
-            alt="Sticker" 
-            className="max-w-full rounded-xl"
-          />
-          {!isGrouped && (
-            <p className="text-xs text-muted-foreground mt-1 ml-1">
-              {message.sender?.username}
-            </p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  if (message.type === 'image') {
-    return (
-      <div className={`flex ${isOwn ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-1' : 'mt-4'}`}>
-        <div className={`max-w-[280px] ${isOwn ? 'order-2' : ''}`}>
-          {!isGrouped && (
-            <div className="flex items-center gap-2 mb-1 ml-1">
-              <Avatar className="h-6 w-6">
-                <AvatarFallback 
-                  style={{ backgroundColor: message.sender?.avatar_color }}
-                  className="text-xs"
-                >
-                  {getInitials(message.sender?.username || '?')}
-                </AvatarFallback>
-              </Avatar>
-              <span className="text-sm font-medium">{message.sender?.username}</span>
-            </div>
-          )}
-          <div className="relative group">
+    switch (message.type) {
+      case 'image':
+        return (
+          <div className="space-y-2">
             <img 
-              src={message.file_url || message.content} 
-              alt={message.file_name || 'Image'} 
-              className="max-w-full rounded-xl cursor-pointer hover:opacity-95 transition-opacity"
+              src={message.file_url || ''} 
+              alt={message.file_name || 'Image'}
+              className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => message.file_url && window.open(message.file_url, '_blank')}
             />
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center">
-              <span className="text-white text-sm">{message.file_name}</span>
+            {message.content && (
+              <p className="text-sm">{highlightText(message.content)}</p>
+            )}
+          </div>
+        )
+      
+      case 'file':
+        return (
+          <div className="flex items-center gap-3 bg-muted/50 rounded-lg p-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+              <span className="text-xs font-bold text-primary">
+                {message.file_name?.split('.').pop()?.toUpperCase() || 'FILE'}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate text-sm">{message.file_name || 'File'}</p>
+              <p className="text-xs text-muted-foreground">Click to download</p>
             </div>
           </div>
-          
-          {/* Image message reactions */}
-          {Object.keys(groupedReactions).length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {Object.entries(groupedReactions).map(([emoji, reactions]) => (
-                <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className="text-xs px-1.5 py-0.5 rounded-full bg-muted hover:bg-muted/80 transition-colors flex items-center gap-0.5"
-                >
-                  {emoji} <span>{reactions.length}</span>
-                </button>
-              ))}
+        )
+      
+      case 'voice':
+        return (
+          <div className="flex items-center gap-3 bg-muted/50 rounded-lg p-3 min-w-[200px]">
+            <Button variant="outline" size="icon" className="h-8 w-8 rounded-full">
+              <Play className="h-4 w-4" />
+            </Button>
+            <div className="flex-1">
+              <div className="h-2 bg-muted-foreground/20 rounded-full overflow-hidden">
+                <div className="h-full bg-primary rounded-full w-1/3" />
+              </div>
             </div>
-          )}
-          
-          <p className="text-xs text-muted-foreground mt-1 ml-1">
-            {formatMessageTime(message.created_at)}
-            {message.updated_at && ' (edited)'}
+            <span className="text-xs text-muted-foreground">{message.content}</span>
+          </div>
+        )
+      
+      case 'sticker':
+        return (
+          <img 
+            src={message.file_url || ''} 
+            alt={message.content}
+            className="w-24 h-24 object-contain"
+          />
+        )
+      
+      default:
+        return (
+          <p className="text-sm break-words">
+            {highlightText(message.content)}
           </p>
-        </div>
-      </div>
-    )
+        )
+    }
   }
 
+  const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '😡']
+
   return (
-    <div 
-      className={`flex ${isOwn ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-0.5' : 'mt-4'} group relative`}
-    >
+    <div className={`flex group ${isOwn ? 'justify-end' : 'justify-start'} ${isGrouped ? 'mt-1' : 'mt-4'}`}>
       {!isOwn && !isGrouped && (
-        <Avatar className="h-8 w-8 mr-2 shrink-0">
+        <Avatar className="h-8 w-8 mr-2 mt-auto">
           <AvatarFallback 
-            style={{ backgroundColor: message.sender?.avatar_color }}
+            style={{ backgroundColor: message.sender?.avatar_color || '#4ECDC4' }}
+            className="text-xs"
           >
             {getInitials(message.sender?.username || '?')}
           </AvatarFallback>
         </Avatar>
       )}
       
-      {isOwn && !isGrouped && <div className="w-10 shrink-0" />}
+      {isGrouped && <div className="w-8 mr-2" />}
 
-      <div className={`max-w-[75%] ${isOwn ? 'order-2' : ''}`}>
-        {!isGrouped && !isOwn && (
-          <p className="text-sm font-medium mb-1 ml-1">{message.sender?.username}</p>
-        )}
-        
-        <div className={`relative ${isOwn ? 'bg-primary text-primary-foreground' : 'bg-muted'} rounded-2xl px-4 py-2.5 ${isOwn ? 'rounded-tr-sm' : 'rounded-tl-sm'}`}>
-          {message.reply_to && (
-            <div className={`text-xs mb-1.5 pb-1.5 border-b ${isOwn ? 'border-primary-foreground/20' : 'border-border'} opacity-80`}>
-              <Reply className="h-3 w-3 inline mr-1" />
-              Reply
-            </div>
-          )}
-          
-          <p className="break-words whitespace-pre-wrap text-[15px]">
-            {message.is_deleted ? (
-              <span className="italic opacity-60">This message was deleted</span>
-            ) : (
-              message.content
+      <div 
+        className={`max-w-[70%] ${isHighlighted ? 'ring-2 ring-yellow-500 ring-offset-2 rounded-lg' : ''}`}
+      >
+        {!isGrouped && (
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-medium">
+              {message.sender?.username || 'Unknown'}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {formatTime(message.created_at)}
+            </span>
+            {message.updated_at && (
+              <span className="text-xs text-muted-foreground">(edited)</span>
             )}
-          </p>
-          
-          {/* Reactions bar */}
-          {Object.keys(groupedReactions).length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {Object.entries(groupedReactions).map(([emoji, reactions]) => (
-                <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className={`text-xs px-1.5 py-0.5 rounded-full flex items-center gap-0.5 transition-colors ${
-                    isOwn 
-                      ? 'bg-primary-foreground/20 hover:bg-primary-foreground/30' 
-                      : 'bg-background/80 hover:bg-background'
-                  }`}
-                >
-                  <span>{emoji}</span>
-                  <span className="text-[10px]">{reactions.length}</span>
-                </button>
-              ))}
-              
-              {/* Add reaction button */}
-              <button
-                onClick={() => setShowReactionPicker(!showReactionPicker)}
-                className={`text-xs px-1.5 py-0.5 rounded-full ${isOwn ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20' : 'bg-background/50 hover:bg-background'} transition-colors`}
-              >
-                +
-              </button>
-            </div>
-          )}
-
-          {/* Hover action bar */}
-          {!message.is_deleted && (
-            <div className={`absolute -top-3 ${isOwn ? '-left-12' : '-right-12'} opacity-0 group-hover:opacity-100 transition-opacity`}>
-              <div className={`flex items-center gap-0.5 bg-popover border rounded-full shadow-md p-0.5`}>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  className="h-7 w-7 rounded-full"
-                  onClick={() => setShowReactionPicker(!showReactionPicker)}
-                >
-                  <Smile className="h-4 w-4" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  className="h-7 w-7 rounded-full"
-                  onClick={onReply}
-                >
-                  <Reply className="h-4 w-4" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon"
-                  className="h-7 w-7 rounded-full"
-                  onClick={handleCopy}
-                >
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-                {isOwn && (
-                  <>
-                    <div className="w-px h-4 bg-border mx-0.5" />
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      className="h-7 w-7 rounded-full"
-                      onClick={onEdit}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      className="h-7 w-7 rounded-full text-destructive hover:text-destructive"
-                      onClick={handleDeleteMessage}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Reaction picker popup */}
-        {showReactionPicker && (
-          <div className={`flex gap-1 mt-1 ${isOwn ? 'justify-end' : ''}`}>
-            <div className="bg-popover border rounded-full px-2 py-1 shadow-md flex gap-0.5">
-              {QUICK_REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className="hover:bg-muted rounded-full p-1 transition-colors text-lg"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
           </div>
         )}
         
-        <div className={`flex items-center gap-1 mt-0.5 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-          <span className="text-[11px] text-muted-foreground">
-            {formatMessageTime(message.created_at)}
-          </span>
-          {message.updated_at && (
-            <span className="text-[11px] text-muted-foreground">(edited)</span>
-          )}
+        <div className={`relative rounded-2xl px-4 py-2 ${
+          isOwn 
+            ? 'bg-primary text-primary-foreground rounded-br-md' 
+            : 'bg-muted rounded-bl-md'
+        }`}>
+          {renderContent()}
+          
+          {/* Message actions - visible on hover */}
+          <div className={`absolute -top-8 ${isOwn ? 'right-0' : 'left-0'} opacity-0 group-hover:opacity-100 transition-opacity`}>
+            <div className={`flex items-center gap-1 bg-background rounded-lg shadow-lg border p-1 ${isOwn ? '' : 'flex-row-reverse'}`}>
+              <TooltipProvider>
+                <DropdownMenu open={showReactions} onOpenChange={setShowReactions}>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                      <Smile className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="mb-2">
+                    <div className="flex gap-1 p-1">
+                      {quickReactions.map(emoji => (
+                        <Button
+                          key={emoji}
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => {
+                            onReaction(emoji)
+                            setShowReactions(false)
+                          }}
+                        >
+                          {emoji}
+                        </Button>
+                      ))}
+                    </div>
+                    <DropdownMenuSeparator />
+                    <EmojiPicker onSelect={(emoji) => {
+                      onReaction(emoji)
+                      setShowReactions(false)
+                    }} />
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onReply}>
+                      <Reply className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Reply</TooltipContent>
+                </Tooltip>
+
+                {isOwn && !message.is_deleted && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+                          <Edit2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Edit</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onDelete}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Delete</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+
+                {!isOwn && !message.is_deleted && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={copyMessage}>
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy</TooltipContent>
+                  </Tooltip>
+                )}
+              </TooltipProvider>
+            </div>
+          </div>
         </div>
+
+        {/* Reactions */}
+        {groupedReactions.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {groupedReactions.map(({ emoji, count, users }) => (
+              <Tooltip key={emoji}>
+                <TooltipTrigger asChild>
+                  <button
+                    className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 bg-muted hover:bg-muted/80 transition-colors ${isOwn ? '' : ''}`}
+                    onClick={() => onReaction(emoji)}
+                  >
+                    <span>{emoji}</span>
+                    <span className="text-muted-foreground">{count}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {users.join(', ')}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        )}
+
+        {/* Timestamp for grouped messages */}
+        {isGrouped && (
+          <div className="flex items-center gap-1 mt-0.5">
+            <span className="text-[10px] text-muted-foreground">
+              {formatTime(message.created_at)}
+            </span>
+            {isOwn && getStatusIcon()}
+          </div>
+        )}
       </div>
+
+      {!isOwn && !isGrouped && <div className="w-8 ml-2" />}
+      
+      {isOwn && !isGrouped && (
+        <div className="flex items-end gap-1 ml-2">
+          {getStatusIcon()}
+          <span className="text-[10px] text-muted-foreground">
+            {formatTime(message.created_at)}
+          </span>
+        </div>
+      )}
     </div>
+  )
+}
+
+function Play(props: React.SVGProps<SVGSVGElement> & { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" {...props}>
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
   )
 }
