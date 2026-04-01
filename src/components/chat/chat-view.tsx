@@ -46,7 +46,10 @@ import {
   ChevronDown,
   Quote,
   Star,
-  Forward
+  Forward,
+  Crown,
+  Shield,
+  Ban
 } from 'lucide-react'
 
 interface ChatViewProps {
@@ -80,6 +83,8 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardMessage, setForwardMessage] = useState<string | null>(null)
   const [availableRooms, setAvailableRooms] = useState<Room[]>([])
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [bannedUsers, setBannedUsers] = useState<string[]>([])
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -114,8 +119,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     setIsLoading(false)
   }, [room.id])
 
-  // Load room members
+  // Load room members and check admin status
   const loadMembers = async () => {
+    if (!user || !room) return
+    
     try {
       const { supabase } = await import('@/lib/supabase')
       const { data } = await supabase
@@ -125,6 +132,26 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
       if (data) {
         setMembers(data)
+      }
+
+      // Check if user is admin
+      const { data: adminData } = await supabase
+        .from('room_admins')
+        .select('*')
+        .eq('room_id', room.id)
+        .eq('user_id', user.id)
+        .single()
+
+      setIsAdmin(!!adminData)
+
+      // Load banned users
+      const { data: bans } = await supabase
+        .from('room_bans')
+        .select('user_id')
+        .eq('room_id', room.id)
+
+      if (bans) {
+        setBannedUsers(bans.map((b: any) => b.user_id))
       }
     } catch (e) {
       console.error('Load members error:', e)
@@ -572,6 +599,80 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     toast.success('Message link copied!')
   }
 
+  const handleKickUser = async (memberId: string, memberName: string) => {
+    if (!user || !isAdmin) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      // Remove from room
+      await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', room.id)
+        .eq('user_id', memberId)
+
+      toast.success(`${memberName} has been removed from the room`)
+      loadMembers()
+    } catch (e) {
+      console.error('Kick error:', e)
+      toast.error('Failed to remove user')
+    }
+  }
+
+  const handleBanUser = async (memberId: string, memberName: string) => {
+    if (!user || !isAdmin) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      // Remove from room
+      await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', room.id)
+        .eq('user_id', memberId)
+
+      // Add to banned list
+      await supabase
+        .from('room_bans')
+        .upsert({
+          room_id: room.id,
+          user_id: memberId,
+          banned_by: user.id,
+          reason: 'Kicked by admin',
+        })
+
+      toast.success(`${memberName} has been banned from the room`)
+      loadMembers()
+    } catch (e) {
+      console.error('Ban error:', e)
+      toast.error('Failed to ban user')
+    }
+  }
+
+  const handleMakeAdmin = async (memberId: string, memberName: string) => {
+    if (!user || !isAdmin) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      
+      await supabase
+        .from('room_admins')
+        .upsert({
+          room_id: room.id,
+          user_id: memberId,
+          role: 'admin',
+        })
+
+      toast.success(`${memberName} is now an admin`)
+      loadMembers()
+    } catch (e) {
+      console.error('Make admin error:', e)
+      toast.error('Failed to make admin')
+    }
+  }
+
   const handleTyping = async (isTyping: boolean) => {
     if (!user) return
 
@@ -974,25 +1075,68 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
               </Button>
             </div>
             <div className="p-4 space-y-3">
-              {members.map(member => (
-                <div key={member.id} className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10">
-                    <AvatarFallback style={{ backgroundColor: member.user?.avatar_color }}>
-                      {getInitials(member.user?.username || '?')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <p className="font-medium">{member.user?.username}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {onlineUsers.includes(member.user?.id) ? (
-                        <span className="text-green-500">Online</span>
-                      ) : (
-                        'Offline'
+              {members.map(member => {
+                const isOnline = onlineUsers.includes(member.user?.id)
+                const isSelf = member.user_id === user?.id
+                const isMemberAdmin = member.role === 'admin' || isAdmin && member.user_id === user?.id
+                
+                return (
+                  <div key={member.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50">
+                    <div className="relative">
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback style={{ backgroundColor: member.user?.avatar_color }}>
+                          {getInitials(member.user?.username || '?')}
+                        </AvatarFallback>
+                      </Avatar>
+                      {isOnline && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
                       )}
-                    </p>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{member.user?.username}</p>
+                        {isSelf && <span className="text-xs text-muted-foreground">(you)</span>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {isOnline ? 'Online' : 'Offline'}
+                      </p>
+                    </div>
+                    
+                    {/* Admin controls */}
+                    {isAdmin && !isSelf && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {!member.role && (
+                            <DropdownMenuItem onClick={() => handleMakeAdmin(member.user_id, member.user?.username)}>
+                              <Crown className="h-4 w-4 mr-2" />
+                              Make Admin
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem 
+                            onClick={() => handleKickUser(member.user_id, member.user?.username)}
+                            className="text-destructive"
+                          >
+                            <Shield className="h-4 w-4 mr-2" />
+                            Remove
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => handleBanUser(member.user_id, member.user?.username)}
+                            className="text-destructive"
+                          >
+                            <Ban className="h-4 w-4 mr-2" />
+                            Ban
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>
