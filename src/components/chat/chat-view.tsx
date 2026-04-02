@@ -18,6 +18,7 @@ import { SearchMessages } from '@/components/chat/search-messages'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/lib/stores'
 import { formatMessageDate, shouldShowDateDivider, getInitials } from '@/lib/utils'
+import { sendToUltron, isMessageToUltron, extractUltronPrompt } from '@/lib/ultron'
 import { format, isToday, isYesterday, isSameDay } from 'date-fns'
 import type { Message, Room, TypingStatus, PresenceState } from '@/lib/types'
 import { toast } from 'sonner'
@@ -386,6 +387,9 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     const trimmedMessage = message.trim()
     if (!trimmedMessage && !editingMessage) return
 
+    // Check if message is directed at @ultron
+    const isUltronMessage = isMessageToUltron(trimmedMessage)
+
     try {
       const { supabase } = await import('@/lib/supabase')
       
@@ -443,6 +447,68 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         if (!error && data) {
           // Replace optimistic message with real one
           setMessages(prev => prev.map(m => m.id === tempId ? data as Message : m))
+          
+          // If this is a message to @ultron, get response
+          if (isUltronMessage) {
+            const prompt = extractUltronPrompt(trimmedMessage)
+            if (prompt) {
+              // Add "thinking" indicator
+              const thinkingId = `temp-thinking-${Date.now()}`
+              const thinkingMessage: Message = {
+                id: thinkingId,
+                room_id: room.id,
+                user_id: 'ultron',
+                content: '🤖 Thinking...',
+                type: 'text',
+                created_at: new Date().toISOString(),
+                sender: { username: 'ultron', avatar_color: '#9333ea' },
+                status: 'sending' as const,
+              }
+              setMessages(prev => [...prev, thinkingMessage])
+              scrollToBottom()
+
+              // Call Ultron API
+              const response = await sendToUltron(room.id, user.id, user.username, prompt, data.id)
+              
+              // Remove thinking indicator
+              setMessages(prev => prev.filter(m => m.id !== thinkingId))
+              
+              if (response.success && response.response) {
+                // Post Ultron's response
+                const { data: ultronData } = await supabase
+                  .from('messages')
+                  .insert({
+                    room_id: room.id,
+                    user_id: 'ultron', // Special bot user
+                    content: response.response,
+                    type: 'text',
+                  })
+                  .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+                  .single()
+                
+                if (ultronData) {
+                  setMessages(prev => [...prev, ultronData as Message])
+                }
+              } else {
+                // Post error response
+                const { data: errorData } = await supabase
+                  .from('messages')
+                  .insert({
+                    room_id: room.id,
+                    user_id: 'ultron',
+                    content: `⚠️ ${response.error || 'Failed to get response from AI assistant'}`,
+                    type: 'text',
+                  })
+                  .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+                  .single()
+                
+                if (errorData) {
+                  setMessages(prev => [...prev, errorData as Message])
+                }
+              }
+              scrollToBottom()
+            }
+          }
         } else {
           // Remove optimistic message on error
           setMessages(prev => prev.filter(m => m.id !== tempId))
