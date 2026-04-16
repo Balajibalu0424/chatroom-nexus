@@ -127,6 +127,32 @@ These tradeoffs are by design for the anonymous, frictionless experience.
 
 Never expose the `service_role` key to the browser.
 
+### Admin Remote Access
+
+The repo now includes a separate `/admin` control plane that launches your own devices through MeshCentral instead of reusing the chatroom PIN flow.
+
+Required server-only variables:
+
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_SCRYPT`
+- `ADMIN_TOTP_SECRET`
+- `ADMIN_SESSION_SECRET`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `MESHCENTRAL_URL`
+- `MESHCENTRAL_USERID`
+- `MESHCENTRAL_LOGIN_TOKEN_KEY`
+
+Helpful setup commands:
+
+```bash
+npm run admin:hash-password -- "replace-with-strong-password"
+npm run admin:totp-secret
+```
+
+Apply the new Supabase migration for `admin_devices` and `admin_audit_logs`, then replace the seeded placeholder MeshCentral node IDs for `Desktop` and `Laptop`.
+
 ---
 
 ## Deployment

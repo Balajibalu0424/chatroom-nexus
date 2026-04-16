@@ -129,6 +129,30 @@ CREATE TABLE IF NOT EXISTS public.rate_limits (
   UNIQUE(identifier, action)
 );
 
+-- 13. ADMIN DEVICES
+CREATE TABLE IF NOT EXISTS public.admin_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT UNIQUE NOT NULL,
+  mesh_node_id TEXT NOT NULL,
+  platform TEXT NOT NULL DEFAULT 'windows',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 14. ADMIN AUDIT LOGS
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  action TEXT NOT NULL,
+  device_id UUID REFERENCES public.admin_devices(id) ON DELETE SET NULL,
+  admin_username TEXT NOT NULL,
+  ip_address TEXT,
+  user_agent TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ================================================
 -- INDEXES
 -- ================================================
@@ -142,6 +166,9 @@ CREATE INDEX IF NOT EXISTS idx_typing_room ON public.typing_state(room_id);
 CREATE INDEX IF NOT EXISTS idx_reactions_message ON public.message_reactions(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message ON public.attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_rate_limits_id_action ON public.rate_limits(identifier, action);
+CREATE INDEX IF NOT EXISTS idx_admin_devices_enabled_sort ON public.admin_devices(enabled, sort_order, label);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created_at ON public.admin_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_device_id ON public.admin_audit_logs(device_id);
 
 -- ================================================
 -- ROW LEVEL SECURITY
@@ -158,6 +185,8 @@ ALTER TABLE public.presence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.typing_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.room_access_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 CREATE POLICY "users_select" ON public.users FOR SELECT USING (true);
@@ -215,6 +244,11 @@ INSERT INTO public.stickers (name, url, pack) VALUES
   ('Roll Safe', 'https://i.imgflip.com/1h7in3.jpg', 'classic'),
   ('Surprised Pikachu', 'https://i.imgflip.com/2kbm1.jpg', 'classic')
 ON CONFLICT DO NOTHING;
+
+INSERT INTO public.admin_devices (label, mesh_node_id, platform, sort_order, enabled) VALUES
+  ('Desktop', 'REPLACE_WITH_DESKTOP_NODE_ID', 'windows', 1, true),
+  ('Laptop', 'REPLACE_WITH_LAPTOP_NODE_ID', 'windows', 2, true)
+ON CONFLICT (label) DO NOTHING;
 
 -- ================================================
 -- STORAGE BUCKET (create manually in Dashboard → Storage)

@@ -148,3 +148,34 @@ export interface UserSettings {
   sound_enabled: boolean
   message_preview: boolean
 }
+
+export interface AdminDevice {
+  id: string
+  label: string
+  mesh_node_id: string
+  platform: 'windows' | 'macos' | 'linux' | 'other'
+  sort_order: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AdminAuditLog {
+  id: string
+  action: string
+  device_id: string | null
+  admin_username: string
+  ip_address: string | null
+  user_agent: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface AdminAuditLogInsert {
+  action: string
+  device_id?: string | null
+  admin_username: string
+  ip_address?: string | null
+  user_agent?: string | null
+  metadata?: Record<string, unknown> | null
+}
