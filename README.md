@@ -143,6 +143,7 @@ Required server-only variables:
 - `MESHCENTRAL_URL`
 - `MESHCENTRAL_USERID`
 - `MESHCENTRAL_LOGIN_TOKEN_KEY`
+- `ADMIN_DEVICES_JSON` (optional fallback catalog when you do not want to read devices from Supabase)
 
 Helpful setup commands:
 
@@ -152,6 +153,20 @@ npm run admin:totp-secret
 ```
 
 Apply the new Supabase migration for `admin_devices` and `admin_audit_logs`, then replace the seeded placeholder MeshCentral node IDs for `Desktop` and `Laptop`.
+
+If the Supabase project is not available yet, configure devices directly from env:
+
+```env
+ADMIN_DEVICES_JSON=[{"id":"desktop","label":"Desktop","mesh_node_id":"node//desktop-id-from-meshcentral","platform":"windows","sort_order":1},{"id":"laptop","label":"Laptop","mesh_node_id":"node//laptop-id-from-meshcentral","platform":"windows","sort_order":2}]
+```
+
+For Vercel or Netlify CLI setup, prefer `ADMIN_DEVICES_JSON_BASE64` with the same JSON encoded as base64 to avoid shell quoting issues.
+
+MeshCentral must still be running on a public HTTPS URL with `allowLoginToken` and `allowFraming` enabled. Generate the login-token key on the MeshCentral server with:
+
+```bash
+node node_modules/meshcentral --logintokenkey
+```
 
 ---
 

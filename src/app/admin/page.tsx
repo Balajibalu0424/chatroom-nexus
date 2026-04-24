@@ -5,7 +5,7 @@ import { ArrowRight, Laptop2, LogOut, Monitor, TerminalSquare } from 'lucide-rea
 
 import { Button } from '@/components/ui/button'
 import { getAdminSessionFromCookieStore } from '@/lib/admin-auth'
-import { listAdminDevices } from '@/lib/admin-devices'
+import { isPlaceholderMeshNodeId, listAdminDevices } from '@/lib/admin-devices'
 import type { AdminDevice } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -61,8 +61,8 @@ export default async function AdminDashboardPage() {
           <section className="rounded-[2rem] border border-dashed border-border bg-card/70 p-10 text-center">
             <p className="text-lg font-medium">Admin catalog is not ready yet</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              The admin pages are deployed, but the `admin_devices` table is not readable yet. Apply the new Supabase
-              migration and seed the MeshCentral node IDs, then refresh this page.
+              The admin pages are deployed, but no readable device catalog is available yet. Configure
+              `ADMIN_DEVICES_JSON`, or apply the Supabase migration and seed MeshCentral node IDs.
             </p>
             <p className="mt-3 font-mono text-xs text-muted-foreground">{setupError}</p>
           </section>
@@ -78,6 +78,7 @@ export default async function AdminDashboardPage() {
           <section className="grid gap-6 lg:grid-cols-2">
             {devices.map((device) => {
               const PlatformIcon = getPlatformIcon(device.platform)
+              const isConfigured = !isPlaceholderMeshNodeId(device.mesh_node_id)
 
               return (
                 <article
@@ -95,7 +96,7 @@ export default async function AdminDashboardPage() {
                       </div>
                     </div>
                     <span className="rounded-full border border-border px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      {device.enabled ? 'Online Ready' : 'Disabled'}
+                      {isConfigured ? 'Configured' : 'Needs Node ID'}
                     </span>
                   </div>
 
@@ -110,26 +111,32 @@ export default async function AdminDashboardPage() {
                     </div>
                   </dl>
 
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <Button asChild>
-                      <Link href={`/admin/devices/${device.id}?mode=desktop`} className="gap-2">
-                        Desktop
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline">
-                      <Link href={`/admin/devices/${device.id}?mode=terminal`} className="gap-2">
-                        Terminal
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline">
-                      <Link href={`/admin/devices/${device.id}?mode=files`} className="gap-2">
-                        Files
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                  </div>
+                  {isConfigured ? (
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Button asChild>
+                        <Link href={`/admin/devices/${device.id}?mode=desktop`} className="gap-2">
+                          Desktop
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link href={`/admin/devices/${device.id}?mode=terminal`} className="gap-2">
+                          Terminal
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link href={`/admin/devices/${device.id}?mode=files`} className="gap-2">
+                          Files
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="rounded-2xl border border-dashed border-border bg-muted/50 p-4 text-sm text-muted-foreground">
+                      Replace this device&apos;s placeholder MeshCentral node ID before launching a session.
+                    </p>
+                  )}
                 </article>
               )
             })}

@@ -18,11 +18,28 @@ const MESH_MODE_TO_VIEW: Record<MeshCentralMode, number> = {
 }
 
 function normalizeMeshCentralKey(keyHex: string): Buffer {
-  if (!/^[0-9a-f]+$/i.test(keyHex) || keyHex.length < 64 || keyHex.length % 2 !== 0) {
-    throw new Error('MESHCENTRAL_LOGIN_TOKEN_KEY must be an even-length hex string')
+  const normalized = keyHex.trim()
+  if (!/^[0-9a-f]+$/i.test(normalized) || normalized.length < 160 || normalized.length % 2 !== 0) {
+    throw new Error('MESHCENTRAL_LOGIN_TOKEN_KEY must be a MeshCentral login-token key hex string of at least 160 characters')
   }
 
-  return Buffer.from(keyHex, 'hex')
+  return Buffer.from(normalized, 'hex')
+}
+
+function normalizeMeshCentralBaseUrl(baseUrl: string): URL {
+  const url = new URL(baseUrl)
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('MESHCENTRAL_URL must be an http or https URL')
+  }
+
+  return url
+}
+
+function assertMeshCentralUserId(userId: string) {
+  const parts = userId.split('/')
+  if (parts.length !== 3 || parts[0] !== 'user' || !parts[2]) {
+    throw new Error('MESHCENTRAL_USERID must use the MeshCentral user/domain/name format, for example user//admin')
+  }
 }
 
 function encodeMeshCookie(payload: MeshCentralLoginPayload, keyHex: string): string {
@@ -52,6 +69,8 @@ export function createMeshCentralLoginToken(
   now = Date.now(),
   expireMinutes = 5
 ): string {
+  assertMeshCentralUserId(userId)
+
   const payload: MeshCentralLoginPayload = {
     u: userId,
     a: 3,
@@ -75,7 +94,7 @@ export function buildMeshCentralSessionUrl(input: {
   now?: number
   expireMinutes?: number
 }): string {
-  const url = new URL(input.baseUrl)
+  const url = normalizeMeshCentralBaseUrl(input.baseUrl)
   const loginToken = createMeshCentralLoginToken(
     input.userId,
     input.keyHex,

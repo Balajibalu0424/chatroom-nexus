@@ -38,3 +38,41 @@ test('meshcentral session URLs include the login token and view params', () => {
   assert.equal(url.searchParams.get('gotonode'), 'node//desktop')
   assert.ok(url.searchParams.get('login'))
 })
+
+test('meshcentral session URLs reject malformed integration config', () => {
+  assert.throws(
+    () =>
+      buildMeshCentralSessionUrl({
+        baseUrl: 'ftp://mesh.example.com/',
+        userId: 'user//integration-admin',
+        keyHex,
+        nodeId: 'node//desktop',
+        mode: 'desktop',
+      }),
+    /MESHCENTRAL_URL/
+  )
+
+  assert.throws(
+    () =>
+      buildMeshCentralSessionUrl({
+        baseUrl: 'https://mesh.example.com/',
+        userId: 'integration-admin',
+        keyHex,
+        nodeId: 'node//desktop',
+        mode: 'desktop',
+      }),
+    /MESHCENTRAL_USERID/
+  )
+
+  assert.throws(
+    () =>
+      buildMeshCentralSessionUrl({
+        baseUrl: 'https://mesh.example.com/',
+        userId: 'user//integration-admin',
+        keyHex: 'ab'.repeat(32),
+        nodeId: 'node//desktop',
+        mode: 'desktop',
+      }),
+    /MESHCENTRAL_LOGIN_TOKEN_KEY/
+  )
+})
