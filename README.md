@@ -136,6 +136,7 @@ Required server-only variables:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD_SCRYPT`
+- `ADMIN_PASSWORD_SCRYPT_BASE64` (optional base64 version of `ADMIN_PASSWORD_SCRYPT` for hosts that mishandle `$`)
 - `ADMIN_TOTP_SECRET`
 - `ADMIN_SESSION_SECRET`
 - `UPSTASH_REDIS_REST_URL`

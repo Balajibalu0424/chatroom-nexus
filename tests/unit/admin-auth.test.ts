@@ -3,6 +3,7 @@ import test from 'node:test'
 import { webcrypto } from 'node:crypto'
 
 import {
+  getAdminAuthConfig,
   generateTotpCode,
   hashAdminPassword,
   verifyAdminPassword,
@@ -20,6 +21,30 @@ if (!globalThis.crypto) {
   })
 }
 
+const originalAdminEnv = {
+  username: process.env.ADMIN_USERNAME,
+  passwordHash: process.env.ADMIN_PASSWORD_SCRYPT,
+  passwordHashBase64: process.env.ADMIN_PASSWORD_SCRYPT_BASE64,
+  totpSecret: process.env.ADMIN_TOTP_SECRET,
+  sessionSecret: process.env.ADMIN_SESSION_SECRET,
+}
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name]
+  } else {
+    process.env[name] = value
+  }
+}
+
+test.afterEach(() => {
+  restoreEnv('ADMIN_USERNAME', originalAdminEnv.username)
+  restoreEnv('ADMIN_PASSWORD_SCRYPT', originalAdminEnv.passwordHash)
+  restoreEnv('ADMIN_PASSWORD_SCRYPT_BASE64', originalAdminEnv.passwordHashBase64)
+  restoreEnv('ADMIN_TOTP_SECRET', originalAdminEnv.totpSecret)
+  restoreEnv('ADMIN_SESSION_SECRET', originalAdminEnv.sessionSecret)
+})
+
 test('admin password hashes verify correctly', () => {
   const hash = hashAdminPassword('correct horse battery staple', {
     salt: Buffer.alloc(16, 7),
@@ -27,6 +52,20 @@ test('admin password hashes verify correctly', () => {
 
   assert.equal(verifyAdminPassword('correct horse battery staple', hash), true)
   assert.equal(verifyAdminPassword('wrong password', hash), false)
+})
+
+test('admin auth config accepts a base64 encoded password hash', () => {
+  const hash = hashAdminPassword('correct horse battery staple', {
+    salt: Buffer.alloc(16, 7),
+  })
+
+  process.env.ADMIN_USERNAME = 'ops-admin'
+  delete process.env.ADMIN_PASSWORD_SCRYPT
+  process.env.ADMIN_PASSWORD_SCRYPT_BASE64 = Buffer.from(hash).toString('base64')
+  process.env.ADMIN_TOTP_SECRET = 'JBSWY3DPEHPK3PXP'
+  process.env.ADMIN_SESSION_SECRET = 'session-secret'
+
+  assert.equal(getAdminAuthConfig().passwordHash, hash)
 })
 
 test('totp codes verify within the allowed window', () => {

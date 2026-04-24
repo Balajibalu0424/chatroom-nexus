@@ -43,6 +43,15 @@ function getRequiredEnv(name: string): string {
   return value
 }
 
+function getAdminPasswordHashFromEnv(): string {
+  const base64Value = process.env.ADMIN_PASSWORD_SCRYPT_BASE64?.trim()
+  if (base64Value) {
+    return Buffer.from(base64Value, 'base64').toString('utf8').trim()
+  }
+
+  return getRequiredEnv('ADMIN_PASSWORD_SCRYPT')
+}
+
 function safeCompare(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left)
   const rightBuffer = Buffer.from(right)
@@ -100,7 +109,7 @@ function generateTotpForCounter(secret: string, counter: number): string {
 export function getAdminAuthConfig(): AdminAuthConfig {
   return {
     username: getRequiredEnv('ADMIN_USERNAME'),
-    passwordHash: getRequiredEnv('ADMIN_PASSWORD_SCRYPT'),
+    passwordHash: getAdminPasswordHashFromEnv(),
     totpSecret: getRequiredEnv('ADMIN_TOTP_SECRET'),
     sessionSecret: getRequiredEnv('ADMIN_SESSION_SECRET'),
   }
