@@ -2,16 +2,23 @@
 const defaultMeshCentralOrigin = 'https://mesh.chatroom.balajios.xyz'
 
 const meshCentralOrigin = (() => {
-  try {
-    const meshCentralUrl =
-      process.env.MESHCENTRAL_FRAME_ORIGIN ||
-      process.env.MESHCENTRAL_URL ||
-      defaultMeshCentralOrigin
+  const candidates = [
+    process.env.MESHCENTRAL_FRAME_ORIGIN,
+    process.env.MESHCENTRAL_URL,
+    defaultMeshCentralOrigin,
+  ]
 
-    return new URL(meshCentralUrl).origin
-  } catch {
-    return null
+  for (const candidate of candidates) {
+    if (!candidate) continue
+
+    try {
+      return new URL(candidate).origin
+    } catch {
+      continue
+    }
   }
+
+  return null
 })()
 
 const contentSecurityPolicy = [
