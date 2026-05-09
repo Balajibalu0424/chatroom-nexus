@@ -1,9 +1,14 @@
 /** @type {import('next').NextConfig} */
+const defaultMeshCentralOrigin = 'https://mesh.chatroom.balajios.xyz'
+
 const meshCentralOrigin = (() => {
   try {
-    return process.env.MESHCENTRAL_URL
-      ? new URL(process.env.MESHCENTRAL_URL).origin
-      : null
+    const meshCentralUrl =
+      process.env.MESHCENTRAL_FRAME_ORIGIN ||
+      process.env.MESHCENTRAL_URL ||
+      defaultMeshCentralOrigin
+
+    return new URL(meshCentralUrl).origin
   } catch {
     return null
   }
