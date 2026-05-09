@@ -38,10 +38,10 @@ test.describe('Chatroom Nexus', () => {
     await page.goto('/')
     
     // Switch to register mode if needed
-    const registerButton = page.getByRole('button', { name: /create account/i })
-    if (await registerButton.isVisible()) {
-      await registerButton.click()
-    }
+    await expect(async () => {
+      await page.getByRole('button', { name: /^create account$/i }).click()
+      await expect(page.getByLabel(/create a pin/i)).toBeVisible({ timeout: 1000 })
+    }).toPass()
     
     // Fill registration form
     const username = `testuser${Date.now().toString().slice(-6)}`

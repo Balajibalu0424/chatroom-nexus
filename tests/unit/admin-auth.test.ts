@@ -4,6 +4,7 @@ import { webcrypto } from 'node:crypto'
 
 import {
   getAdminAuthConfig,
+  getAdminSessionFromCookieHeader,
   generateTotpCode,
   hashAdminPassword,
   verifyAdminPassword,
@@ -91,4 +92,14 @@ test('admin session tokens reject tampering and expiry', async () => {
   const tampered = `${token}tampered`
   assert.equal(await verifyAdminSessionToken(tampered, 'session-secret', 1_710_000_020_000), null)
   assert.equal(await verifyAdminSessionToken(token, 'session-secret', 1_710_000_120_000), null)
+})
+
+test('admin session cookies verify after framework cookie encoding', async () => {
+  process.env.ADMIN_SESSION_SECRET = 'session-secret'
+  const token = await createAdminSessionToken('ops-admin', 'session-secret', 1_710_000_000_000, 60)
+  const cookieHeader = `admin_session=${encodeURIComponent(token)}`
+
+  const parsed = await getAdminSessionFromCookieHeader(cookieHeader, 1_710_000_020_000)
+
+  assert.equal(parsed?.username, 'ops-admin')
 })

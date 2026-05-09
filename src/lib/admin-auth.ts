@@ -218,6 +218,26 @@ export function parseCookieHeader(cookieHeader: string | null | undefined): Reco
   }, {})
 }
 
+async function verifyAdminSessionCookieValue(
+  token: string,
+  secret: string,
+  now: number
+): Promise<AdminSessionPayload | null> {
+  const session = await verifyAdminSessionToken(token, secret, now)
+  if (session) return session
+
+  try {
+    const decodedToken = decodeURIComponent(token)
+    if (decodedToken !== token) {
+      return verifyAdminSessionToken(decodedToken, secret, now)
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
 export async function getAdminSessionFromCookieHeader(
   cookieHeader: string | null | undefined,
   now = Date.now()
@@ -228,7 +248,7 @@ export async function getAdminSessionFromCookieHeader(
   const token = parseCookieHeader(cookieHeader)[ADMIN_SESSION_COOKIE]
   if (!token) return null
 
-  return verifyAdminSessionToken(token, secret, now)
+  return verifyAdminSessionCookieValue(token, secret, now)
 }
 
 export async function getAdminSessionFromCookieStore(
@@ -242,7 +262,7 @@ export async function getAdminSessionFromCookieStore(
     return null
   }
 
-  return verifyAdminSessionToken(token, secret, now)
+  return verifyAdminSessionCookieValue(token, secret, now)
 }
 
 export async function issueAdminSession(username: string, now = Date.now()): Promise<string> {
