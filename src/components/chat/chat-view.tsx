@@ -218,39 +218,28 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   // Load room members and check admin status
   const loadMembers = useCallback(async () => {
     if (!user) return
-    
+
     try {
-      const { supabase } = await import('@/lib/supabase')
-      const { data } = await supabase
-        .from('room_members')
-        .select('*, user:users(id, username, avatar_color, last_seen)')
-        .eq('room_id', room.id)
+      const response = await fetch(`/api/rooms/${room.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          userId: user.id,
+          username: user.username,
+        }),
+      })
 
-      if (data) {
-        setMembers(data)
-        const currentMember = data.find((member: any) => member.user_id === user.id)
-        setIsCurrentRoomMuted(Boolean(currentMember?.is_muted || isRoomMuted(settings, room.id)))
+      if (!response.ok) {
+        throw new Error('Room members request failed')
       }
 
-      // Check if user is admin
-      const { data: adminData } = await supabase
-        .from('room_admins')
-        .select('*')
-        .eq('room_id', room.id)
-        .eq('user_id', user.id)
-        .single()
-
-      setIsAdmin(!!adminData)
-
-      // Load banned users
-      const { data: bans } = await supabase
-        .from('room_bans')
-        .select('user_id')
-        .eq('room_id', room.id)
-
-      if (bans) {
-        setBannedUsers(bans.map((b: any) => b.user_id))
-      }
+      const data = await response.json()
+      setMembers(data.members ?? [])
+      const currentMember = (data.members ?? []).find((member: any) => member.user_id === user.id)
+      setIsCurrentRoomMuted(Boolean(currentMember?.is_muted || isRoomMuted(settings, room.id)))
+      setIsAdmin(Boolean(data.isAdmin))
+      setBannedUsers(data.bannedUsers ?? [])
     } catch (e) {
       console.error('Load members error:', e)
     }
