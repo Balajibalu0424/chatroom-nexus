@@ -529,8 +529,17 @@ export default function Home() {
             filteredRooms.map(room => (
               <div 
                 key={room.id} 
+                role="button"
+                tabIndex={0}
+                aria-label={`Open room ${room.name}`}
                 className="relative cursor-pointer border-b border-white/10 p-3 transition-all hover:bg-white/10"
                 onClick={() => setSelectedRoom(room)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    setSelectedRoom(room)
+                  }
+                }}
               >
                 {/* Unread badge */}
                 {unreadCounts[room.id] ? (
