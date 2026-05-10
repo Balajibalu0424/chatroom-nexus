@@ -137,7 +137,6 @@ Required server-only variables:
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD_SCRYPT`
 - `ADMIN_PASSWORD_SCRYPT_BASE64` (optional base64 version of `ADMIN_PASSWORD_SCRYPT` for hosts that mishandle `$`)
-- `ADMIN_TOTP_SECRET`
 - `ADMIN_SESSION_SECRET`
 - `UPSTASH_REDIS_REST_URL`
 - `UPSTASH_REDIS_REST_TOKEN`
@@ -150,7 +149,6 @@ Helpful setup commands:
 
 ```bash
 npm run admin:hash-password -- "replace-with-strong-password"
-npm run admin:totp-secret
 ```
 
 Apply the new Supabase migration for `admin_devices` and `admin_audit_logs`, then replace the seeded placeholder MeshCentral node IDs for `Desktop` and `Laptop`.

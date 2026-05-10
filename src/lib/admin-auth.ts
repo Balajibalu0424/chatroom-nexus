@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 
 import {
   ADMIN_SESSION_COOKIE,
@@ -15,12 +15,9 @@ const DEFAULT_SCRYPT_PARAMS = {
   keyLength: 64,
 }
 
-const TOTP_STEP_SECONDS = 30
-
 export interface AdminAuthConfig {
   username: string
   passwordHash: string
-  totpSecret: string
   sessionSecret: string
 }
 
@@ -59,58 +56,10 @@ function safeCompare(left: string, right: string): boolean {
   return timingSafeEqual(leftBuffer, rightBuffer)
 }
 
-function normalizeBase32(input: string): string {
-  return input.replace(/[\s=-]/g, '').toUpperCase()
-}
-
-function decodeBase32(input: string): Buffer {
-  const normalized = normalizeBase32(input)
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = ''
-
-  for (const char of normalized) {
-    const value = alphabet.indexOf(char)
-    if (value === -1) {
-      throw new Error('Invalid base32 secret')
-    }
-    bits += value.toString(2).padStart(5, '0')
-  }
-
-  const bytes: number[] = []
-  for (let index = 0; index + 8 <= bits.length; index += 8) {
-    bytes.push(Number.parseInt(bits.slice(index, index + 8), 2))
-  }
-
-  return Buffer.from(bytes)
-}
-
-function totpCounterBuffer(counter: number): Buffer {
-  const buffer = Buffer.alloc(8)
-  buffer.writeUInt32BE(Math.floor(counter / 0x100000000), 0)
-  buffer.writeUInt32BE(counter >>> 0, 4)
-  return buffer
-}
-
-function generateTotpForCounter(secret: string, counter: number): string {
-  const key = decodeBase32(secret)
-  const hmac = createHmac('sha1', key)
-  hmac.update(totpCounterBuffer(counter))
-  const digest = hmac.digest()
-  const offset = digest[digest.length - 1] & 0x0f
-  const code =
-    ((digest[offset] & 0x7f) << 24) |
-    ((digest[offset + 1] & 0xff) << 16) |
-    ((digest[offset + 2] & 0xff) << 8) |
-    (digest[offset + 3] & 0xff)
-
-  return String(code % 1_000_000).padStart(6, '0')
-}
-
 export function getAdminAuthConfig(): AdminAuthConfig {
   return {
     username: getRequiredEnv('ADMIN_USERNAME'),
     passwordHash: getAdminPasswordHashFromEnv(),
-    totpSecret: getRequiredEnv('ADMIN_TOTP_SECRET'),
     sessionSecret: getRequiredEnv('ADMIN_SESSION_SECRET'),
   }
 }
@@ -165,43 +114,17 @@ export function verifyAdminPassword(password: string, storedHash: string): boole
   return timingSafeEqual(derivedKey, expected)
 }
 
-export function generateTotpCode(secret: string, now = Date.now()): string {
-  const counter = Math.floor(now / 1000 / TOTP_STEP_SECONDS)
-  return generateTotpForCounter(secret, counter)
-}
-
-export function verifyTotpCode(
-  secret: string,
-  code: string,
-  now = Date.now(),
-  window = 1
-): boolean {
-  if (!/^\d{6}$/.test(code)) return false
-
-  const counter = Math.floor(now / 1000 / TOTP_STEP_SECONDS)
-  for (let offset = -window; offset <= window; offset += 1) {
-    if (safeCompare(generateTotpForCounter(secret, counter + offset), code)) {
-      return true
-    }
-  }
-
-  return false
-}
-
 export async function authenticateAdminCredentials(input: {
   username: string
   password: string
-  totpCode: string
-  now?: number
 }): Promise<boolean> {
-  const { username, password, totpCode, now = Date.now() } = input
+  const { username, password } = input
   const config = getAdminAuthConfig()
 
   const usernameMatches = safeCompare(username, config.username)
   const passwordMatches = verifyAdminPassword(password, config.passwordHash)
-  const totpMatches = verifyTotpCode(config.totpSecret, totpCode, now)
 
-  return usernameMatches && passwordMatches && totpMatches
+  return usernameMatches && passwordMatches
 }
 
 export function parseCookieHeader(cookieHeader: string | null | undefined): Record<string, string> {

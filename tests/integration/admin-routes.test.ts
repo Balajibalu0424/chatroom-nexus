@@ -6,7 +6,6 @@ import { NextRequest } from 'next/server'
 
 import {
   buildAdminSessionCookie,
-  generateTotpCode,
   hashAdminPassword,
   issueAdminSession,
 } from '@/lib/admin-auth'
@@ -26,7 +25,6 @@ function configureAdminEnv() {
   process.env.ADMIN_PASSWORD_SCRYPT = hashAdminPassword('very-strong-password', {
     salt: Buffer.alloc(16, 11),
   })
-  process.env.ADMIN_TOTP_SECRET = 'JBSWY3DPEHPK3PXP'
   process.env.ADMIN_SESSION_SECRET = 'integration-session-secret'
   delete process.env.UPSTASH_REDIS_REST_URL
   delete process.env.UPSTASH_REDIS_REST_TOKEN
@@ -34,7 +32,6 @@ function configureAdminEnv() {
 
 test('admin login route sets the signed session cookie', async () => {
   configureAdminEnv()
-  const totpCode = generateTotpCode(process.env.ADMIN_TOTP_SECRET!)
 
   const response = await loginRoute(
     new Request('http://localhost/api/admin/login', {
@@ -46,7 +43,6 @@ test('admin login route sets the signed session cookie', async () => {
       body: JSON.stringify({
         username: process.env.ADMIN_USERNAME,
         password: 'very-strong-password',
-        totpCode,
       }),
     })
   )
@@ -68,7 +64,6 @@ test('admin login route returns a generic 401 for invalid credentials', async ()
       body: JSON.stringify({
         username: process.env.ADMIN_USERNAME,
         password: 'wrong-password',
-        totpCode: '000000',
       }),
     })
   )

@@ -35,7 +35,7 @@ export default async function AdminLoginPage() {
             <div className="rounded-2xl border border-border/60 bg-card/70 p-4">
               <MonitorCog className="mb-4 h-5 w-5 text-primary" />
               <p className="text-sm font-medium">Separate auth</p>
-              <p className="mt-2 text-sm text-muted-foreground">Scrypt password, TOTP, signed HttpOnly session cookie.</p>
+              <p className="mt-2 text-sm text-muted-foreground">Scrypt password and a signed HttpOnly session cookie.</p>
             </div>
             <div className="rounded-2xl border border-border/60 bg-card/70 p-4">
               <ScanEye className="mb-4 h-5 w-5 text-primary" />
@@ -56,7 +56,7 @@ export default async function AdminLoginPage() {
               <p className="text-xs uppercase tracking-[0.26em] text-muted-foreground">Restricted Access</p>
               <h2 className="text-2xl font-semibold">Admin Sign-In</h2>
               <p className="text-sm text-muted-foreground">
-                Use the dedicated admin account and your authenticator code. Chat PINs are not accepted here.
+                Use the dedicated admin account password. Chat PINs are not accepted here.
               </p>
             </div>
             <AdminLoginForm />

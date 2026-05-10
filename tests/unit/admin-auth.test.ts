@@ -5,10 +5,8 @@ import { webcrypto } from 'node:crypto'
 import {
   getAdminAuthConfig,
   getAdminSessionFromCookieHeader,
-  generateTotpCode,
   hashAdminPassword,
   verifyAdminPassword,
-  verifyTotpCode,
 } from '@/lib/admin-auth'
 import {
   createAdminSessionToken,
@@ -26,7 +24,6 @@ const originalAdminEnv = {
   username: process.env.ADMIN_USERNAME,
   passwordHash: process.env.ADMIN_PASSWORD_SCRYPT,
   passwordHashBase64: process.env.ADMIN_PASSWORD_SCRYPT_BASE64,
-  totpSecret: process.env.ADMIN_TOTP_SECRET,
   sessionSecret: process.env.ADMIN_SESSION_SECRET,
 }
 
@@ -42,7 +39,6 @@ test.afterEach(() => {
   restoreEnv('ADMIN_USERNAME', originalAdminEnv.username)
   restoreEnv('ADMIN_PASSWORD_SCRYPT', originalAdminEnv.passwordHash)
   restoreEnv('ADMIN_PASSWORD_SCRYPT_BASE64', originalAdminEnv.passwordHashBase64)
-  restoreEnv('ADMIN_TOTP_SECRET', originalAdminEnv.totpSecret)
   restoreEnv('ADMIN_SESSION_SECRET', originalAdminEnv.sessionSecret)
 })
 
@@ -63,20 +59,9 @@ test('admin auth config accepts a base64 encoded password hash', () => {
   process.env.ADMIN_USERNAME = 'ops-admin'
   delete process.env.ADMIN_PASSWORD_SCRYPT
   process.env.ADMIN_PASSWORD_SCRYPT_BASE64 = Buffer.from(hash).toString('base64')
-  process.env.ADMIN_TOTP_SECRET = 'JBSWY3DPEHPK3PXP'
   process.env.ADMIN_SESSION_SECRET = 'session-secret'
 
   assert.equal(getAdminAuthConfig().passwordHash, hash)
-})
-
-test('totp codes verify within the allowed window', () => {
-  const secret = 'JBSWY3DPEHPK3PXP'
-  const now = 1_710_000_000_000
-  const code = generateTotpCode(secret, now)
-
-  assert.equal(verifyTotpCode(secret, code, now), true)
-  assert.equal(verifyTotpCode(secret, code, now + 25_000), true)
-  assert.equal(verifyTotpCode(secret, code, now + 120_000), false)
 })
 
 test('admin session tokens reject tampering and expiry', async () => {

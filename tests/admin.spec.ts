@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test'
 
 const adminEnabled = Boolean(
   process.env.PLAYWRIGHT_ADMIN_USERNAME &&
-  process.env.PLAYWRIGHT_ADMIN_PASSWORD &&
-  process.env.PLAYWRIGHT_ADMIN_TOTP
+  process.env.PLAYWRIGHT_ADMIN_PASSWORD
 )
 
 test.describe('Admin Console', () => {
@@ -14,7 +13,6 @@ test.describe('Admin Console', () => {
 
     await page.getByLabel('Admin Username').fill(process.env.PLAYWRIGHT_ADMIN_USERNAME!)
     await page.getByLabel('Password').fill(process.env.PLAYWRIGHT_ADMIN_PASSWORD!)
-    await page.getByLabel('TOTP Code').fill(process.env.PLAYWRIGHT_ADMIN_TOTP!)
     await page.getByRole('button', { name: /enter admin console/i }).click()
 
     await expect(page.getByRole('heading', { name: /admin device dashboard/i })).toBeVisible()

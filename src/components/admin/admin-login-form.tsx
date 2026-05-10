@@ -2,7 +2,7 @@
 
 import { useState, startTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Shield, KeyRound, Loader2, LockKeyhole } from 'lucide-react'
+import { Shield, Loader2, LockKeyhole } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,6 @@ export function AdminLoginForm() {
   const searchParams = useSearchParams()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [totpCode, setTotpCode] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const nextPath = searchParams.get('next') || '/admin'
@@ -32,7 +31,6 @@ export function AdminLoginForm() {
         body: JSON.stringify({
           username,
           password,
-          totpCode,
         }),
       })
 
@@ -88,26 +86,6 @@ export function AdminLoginForm() {
             autoComplete="current-password"
             className="h-12 pl-10"
             placeholder="Enter admin password"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="admin-totp" className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          TOTP Code
-        </Label>
-        <div className="relative">
-          <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            id="admin-totp"
-            inputMode="numeric"
-            pattern="\d{6}"
-            value={totpCode}
-            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-            autoComplete="one-time-code"
-            className="h-12 pl-10 text-center font-mono tracking-[0.35em]"
-            placeholder="123456"
             required
           />
         </div>

@@ -13,7 +13,6 @@ export const runtime = 'nodejs'
 interface LoginRequestBody {
   username?: string
   password?: string
-  totpCode?: string
 }
 
 export async function POST(request: Request) {
@@ -46,12 +45,10 @@ export async function POST(request: Request) {
 
     const username = typeof body.username === 'string' ? body.username.trim() : ''
     const password = typeof body.password === 'string' ? body.password : ''
-    const totpCode = typeof body.totpCode === 'string' ? body.totpCode.replace(/\s+/g, '') : ''
 
     const authenticated = await authenticateAdminCredentials({
       username,
       password,
-      totpCode,
     })
 
     if (!authenticated) {
