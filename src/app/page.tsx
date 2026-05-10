@@ -23,6 +23,8 @@ import { toast } from 'sonner'
 export default function Home() {
   const { user, isAuthenticated, logout, settings: rawSettings, updateSettings } = useAuthStore()
   const settings = useMemo(() => withDefaultUserSettings(rawSettings), [rawSettings])
+  const userId = user?.id
+  const username = user?.username
   const [rooms, setRooms] = useState<Room[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showCreateJoin, setShowCreateJoin] = useState(false)
@@ -67,44 +69,31 @@ export default function Home() {
   }, [unreadCounts])
 
   const loadRooms = useCallback(async () => {
-    if (!user) return
+    if (!userId || !username) return
     try {
-      const { supabase } = await import('@/lib/supabase')
-      
-      // Load rooms with last message
-      const { data } = await supabase
-        .from('room_members')
-        .select(`
-          room:rooms(
-            *,
-            last_message:messages(content, created_at, type, user_id)
-          )
-        `)
-        .eq('user_id', user.id)
+      const response = await fetch('/api/rooms/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          userId,
+          username,
+        }),
+      })
 
-      if (data && data.length > 0) {
-        const loadedRooms = data
-          .map((m: any) => m.room)
-          .filter((room): room is Room => room && typeof room === 'object')
-        
-        // Sort by last message time
-        loadedRooms.sort((a, b) => {
-          const aTime = a.last_message_at || a.created_at
-          const bTime = b.last_message_at || b.created_at
-          return new Date(bTime).getTime() - new Date(aTime).getTime()
-        })
-        setRooms(loadedRooms)
-        setFilteredRooms(loadedRooms)
-      } else {
-        setRooms([])
-        setFilteredRooms([])
+      if (!response.ok) {
+        throw new Error('Room list request failed')
       }
+
+      const { rooms: loadedRooms = [] } = (await response.json()) as { rooms?: Room[] }
+      setRooms(loadedRooms)
+      setFilteredRooms(loadedRooms)
     } catch (e: any) {
       console.error('Load rooms error:', e)
       setRooms([])
       setFilteredRooms([])
     }
-  }, [user])
+  }, [userId, username])
 
   // Load online users for each room
   const loadOnlineUsers = useCallback(async () => {
