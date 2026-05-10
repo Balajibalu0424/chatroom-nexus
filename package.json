@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "admin:hash-password": "node scripts/hash-admin-password.mjs",
+    "push:vapid": "node scripts/generate-vapid-keys.js",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

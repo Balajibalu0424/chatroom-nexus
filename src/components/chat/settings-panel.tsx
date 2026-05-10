@@ -7,10 +7,11 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores'
 import { toast } from 'sonner'
-import { Settings, Moon, Sun, Monitor, Bell, Lock, User, LogOut, Trash2, AlertTriangle, Upload, Loader2, BellOff } from 'lucide-react'
+import { Settings, Moon, Sun, Monitor, Bell, Lock, User, LogOut, Trash2, AlertTriangle, Upload, Loader2, Eye, EyeOff, Volume2, Sparkles, PlayCircle } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/lib/utils'
-import { isPushSupported, requestNotificationPermission, subscribeToPush, unsubscribeFromPush } from '@/lib/push-notifications'
+import { isPushSupported, requestNotificationPermission } from '@/lib/push-notifications'
+import { withDefaultUserSettings } from '@/lib/rich-messaging'
 
 interface SettingsPanelProps {
   open: boolean
@@ -19,7 +20,8 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelProps) {
-  const { user, logout, settings, updateSettings, pushSubscription, subscribePush, unsubscribePush } = useAuthStore()
+  const { user, logout, settings: rawSettings, updateSettings, pushSubscription, subscribePush, unsubscribePush } = useAuthStore()
+  const settings = withDefaultUserSettings(rawSettings)
   const [username, setUsername] = useState(user?.username || '')
   const [newPin, setNewPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
@@ -304,6 +306,90 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
             </div>
           </div>
 
+          {/* Privacy Section */}
+          <div className="space-y-4">
+            <h3 className="flex items-center gap-2 text-sm font-medium">
+              {settings.privacy_mode === 'private' ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              Privacy
+            </h3>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant={settings.privacy_mode === 'balanced' ? 'default' : 'outline'}
+                className="h-auto flex-col items-start gap-1 py-3 text-left"
+                onClick={() => updateSettings({ privacy_mode: 'balanced', message_preview: true })}
+              >
+                <span className="text-sm">Balanced</span>
+                <span className="text-xs font-normal opacity-80">Show local previews</span>
+              </Button>
+              <Button
+                variant={settings.privacy_mode === 'private' ? 'default' : 'outline'}
+                className="h-auto flex-col items-start gap-1 py-3 text-left"
+                onClick={() => updateSettings({ privacy_mode: 'private', message_preview: false })}
+              >
+                <span className="text-sm">Private</span>
+                <span className="text-xs font-normal opacity-80">Hide message text</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Media and Motion Section */}
+          <div className="space-y-4">
+            <h3 className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-4 w-4" />
+              Media and Motion
+            </h3>
+
+            <div className="grid gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-start gap-3">
+                  <PlayCircle className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="font-medium">Media Autoplay</p>
+                    <p className="text-xs text-muted-foreground">Automatically animate GIFs when possible</p>
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => updateSettings({ media_autoplay: !settings.media_autoplay })}>
+                  {settings.media_autoplay ? 'On' : 'Off'}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">Reduced Motion</p>
+                  <p className="text-xs text-muted-foreground">Pause non-essential animations</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => updateSettings({ reduced_motion: !settings.reduced_motion })}>
+                  {settings.reduced_motion ? 'On' : 'Off'}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">3D Glass Effects</p>
+                  <p className="text-xs text-muted-foreground">Use depth, blur, and ambient 3D panels</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => updateSettings({ effects_3d: !settings.effects_3d })}>
+                  {settings.effects_3d ? 'On' : 'Off'}
+                </Button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">GIF Safety Rating</p>
+                  <p className="text-xs text-muted-foreground">Limit GIF search to G or PG results</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateSettings({ gif_rating: settings.gif_rating === 'g' ? 'pg' : 'g' })}
+                >
+                  {settings.gif_rating?.toUpperCase()}
+                </Button>
+              </div>
+            </div>
+          </div>
+
           {/* Notifications Section */}
           <div className="space-y-4">
             <h3 className="text-sm font-medium flex items-center gap-2">
@@ -328,11 +414,13 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
                     try {
                       if (pushEnabled) {
                         await unsubscribePush()
+                        updateSettings({ push_enabled: false })
                         toast.success('Push notifications disabled')
                       } else {
                         const granted = await requestNotificationPermission()
                         if (granted) {
                           await subscribePush()
+                          updateSettings({ push_enabled: true })
                           toast.success('Push notifications enabled!')
                         } else {
                           toast.error('Permission denied')
@@ -365,7 +453,7 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Sound</p>
+                <p className="flex items-center gap-2 font-medium"><Volume2 className="h-4 w-4" /> Sound</p>
                 <p className="text-xs text-muted-foreground">Play sound for new messages</p>
               </div>
               <Button 
@@ -375,6 +463,23 @@ export function SettingsPanel({ open, onOpenChange, onLogout }: SettingsPanelPro
               >
                 {settings.sound_enabled ? 'On' : 'Off'}
               </Button>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Sound Volume</p>
+                <span className="text-xs text-muted-foreground">{Math.round((settings.sound_volume ?? 0.5) * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={settings.sound_volume ?? 0.5}
+                onChange={(event) => updateSettings({ sound_volume: Number(event.target.value) })}
+                className="w-full accent-primary"
+                aria-label="Notification sound volume"
+              />
             </div>
 
             <div className="flex items-center justify-between">

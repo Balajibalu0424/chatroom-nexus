@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || ''
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || process.env.NEXT_PUBLIC_VAPID_KEY || ''
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || ''
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@balajios.xyz'
 
 export async function POST(request: Request) {
   try {
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     // Import web-push dynamically
     const webpush = await import('web-push')
     webpush.setVapidDetails(
-      'mailto:your-email@example.com',
+      VAPID_SUBJECT,
       VAPID_PUBLIC_KEY,
       VAPID_PRIVATE_KEY
     )
@@ -58,8 +59,8 @@ export async function POST(request: Request) {
           const pushPayload = JSON.stringify({
             title: title || 'New message',
             body: body || '',
-            icon: '/icon-192.png',
-            badge: '/badge-72.png',
+            icon: '/icon.svg',
+            badge: '/badge.svg',
             tag: 'chatroom-notification',
             data: {
               roomId,

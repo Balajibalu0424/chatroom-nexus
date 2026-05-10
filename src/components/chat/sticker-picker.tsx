@@ -2,69 +2,52 @@
 
 import { Button } from '@/components/ui/button'
 import { X } from 'lucide-react'
+import { stickerPacks } from '@/lib/sticker-packs'
 
 interface StickerPickerProps {
   onSelect: (stickerUrl: string, stickerName: string) => void
   onClose?: () => void
 }
 
-// Free sticker packs from imgflip
-const stickerPacks = [
-  {
-    name: 'Classic',
-    stickers: [
-      'https://i.imgflip.com/1bij.jpg',  // One Does Not Simply
-      'https://i.imgflip.com/1ur9b0.jpg', // Change My Mind
-      'https://i.imgflip.com/30b1gx.jpg', // Leonardo Dicaprio Cheers
-      'https://i.imgflip.com/1g8my4.jpg', // Awkward Look Monkey Puppet
-      'https://i.imgflip.com/9ehk.jpg',   // Laughing Leo
-      'https://i.imgflip.com/1h7in3.jpg', // Drake Approving
-      'https://i.imgflip.com/4t0m5.jpg',  // Woman Yelling at Cat
-      'https://i.imgflip.com/261o3j.jpg', // This Is Fine
-    ]
-  },
-  {
-    name: 'Reactions',
-    stickers: [
-      'https://i.imgflip.com/4/280.jpg',   // Thumbs Up
-      'https://i.imgflip.com/2j3u1i.jpg',  // Distracted Boyfriend
-      'https://i.imgflip.com/3oevdk.jpg',  // Two Buttons
-      'https://i.imgflip.com/1bhw.jpg',    // Y U No
-      'https://i.imgflip.com/m8j6a.jpg',   // Oppression
-      'https://i.imgflip.com/3lmzyx.jpg',  // Bernie Sanders Once Again
-    ]
-  }
-]
-
 export function StickerPicker({ onSelect, onClose }: StickerPickerProps) {
   return (
-    <div className="bg-popover border rounded-lg shadow-lg overflow-hidden w-80">
-      <div className="flex items-center justify-between p-2 border-b">
-        <span className="text-sm font-medium">Stickers</span>
+    <div className="glass-panel w-80 overflow-hidden rounded-2xl border border-white/15">
+      <div className="flex items-center justify-between border-b border-white/10 p-3">
+        <div>
+          <span className="text-sm font-semibold">Stickers</span>
+          <p className="text-xs text-muted-foreground">Static and animated default packs</p>
+        </div>
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>
           <X className="h-4 w-4" />
         </Button>
       </div>
       
-      <div className="p-2 max-h-64 overflow-y-auto">
+      <div className="max-h-72 overflow-y-auto p-3">
         {stickerPacks.map((pack) => (
-          <div key={pack.name} className="mb-4">
-            <p className="text-xs text-muted-foreground mb-2">{pack.name}</p>
+          <div key={pack.id} className="mb-5 last:mb-0">
+            <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">{pack.name}</p>
             <div className="grid grid-cols-4 gap-2">
-              {pack.stickers.map((url, index) => (
+              {pack.stickers.map((sticker) => (
                 <button
-                  key={index}
+                  key={sticker.id}
                   onClick={() => {
-                    onSelect(url, pack.stickers.indexOf(url) + 1 + '')
+                    onSelect(sticker.url, sticker.name)
+                    onClose?.()
                   }}
-                  className="aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-primary transition-all"
+                  className="group relative aspect-square overflow-hidden rounded-xl bg-muted transition-all hover:-translate-y-0.5 hover:ring-2 hover:ring-primary focus-visible:ring-2"
+                  title={sticker.name}
                 >
                   <img 
-                    src={url} 
-                    alt={`Sticker ${index + 1}`}
-                    className="w-full h-full object-cover"
+                    src={sticker.url}
+                    alt={sticker.name}
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
                     loading="lazy"
                   />
+                  {sticker.animated ? (
+                    <span className="absolute right-1 top-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">
+                      Live
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>

@@ -1,12 +1,10 @@
 "use client"
 
-import { useEffect, useState, useCallback } from 'react'
-import { useAuthStore } from '@/lib/stores'
+import { useEffect, useState } from 'react'
 
 // Check if notification permission is granted
 export function useNotificationPermission() {
   const [permission, setPermission] = useState<NotificationPermission>('default')
-  const settings = useAuthStore((state) => state.settings)
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -41,8 +39,8 @@ export function showNotification(
   }
 
   const notification = new Notification(title, {
-    icon: '/icon.png',
-    badge: '/badge.png',
+    icon: '/icon.svg',
+    badge: '/badge.svg',
     ...options,
   })
 
@@ -50,7 +48,7 @@ export function showNotification(
 }
 
 // Parse VAPID key from environment
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_KEY || ''
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_KEY || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || ''
 
 // Convert VAPID key to Uint8Array
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
@@ -67,7 +65,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
 // Subscribe to push notifications
 export async function subscribeToPush(
   userId: string,
-  supabase: any
+  _supabase: any
 ): Promise<PushSubscription | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
     console.log('Push notifications not supported')
@@ -86,13 +84,17 @@ export async function subscribeToPush(
       applicationServerKey: VAPID_PUBLIC_KEY ? urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer : undefined,
     })
 
-    // Send subscription to server
+    // Send subscription to the server so storage does not depend on permissive
+    // client-side table policies.
     const subscriptionJson = subscription.toJSON()
-    await supabase.from('push_subscriptions').upsert({
-      user_id: userId,
-      endpoint: subscriptionJson.endpoint,
-      keys: subscriptionJson.keys,
-      created_at: new Date().toISOString(),
+    await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        subscription: subscriptionJson,
+        userAgent: navigator.userAgent,
+      }),
     })
 
     return subscription
@@ -105,7 +107,7 @@ export async function subscribeToPush(
 // Unsubscribe from push
 export async function unsubscribeFromPush(
   userId: string,
-  supabase: any
+  _supabase: any
 ): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return
@@ -117,11 +119,14 @@ export async function unsubscribeFromPush(
 
     if (subscription) {
       await subscription.unsubscribe()
-      await supabase
-        .from('push_subscriptions')
-        .delete()
-        .eq('user_id', userId)
-        .eq('endpoint', subscription.endpoint)
+      await fetch('/api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          endpoint: subscription.endpoint,
+        }),
+      })
     }
   } catch (error) {
     console.error('Push unsubscribe error:', error)
@@ -148,8 +153,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     
     // Handle messages from service worker
     navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'NOTIFICATION_CLICKED') {
-        // Handle notification click - could navigate to the chat
+      if (event.data && (event.data.type === 'NOTIFICATION_CLICKED' || event.data.type === 'NAVIGATE_TO_ROOM')) {
         const { roomId, messageId } = event.data
         if (roomId) {
           window.location.href = `/?room=${roomId}`

@@ -10,7 +10,6 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll([
         '/',
-        '/offline',
       ])
     })
   )
@@ -60,8 +59,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: body || '',
-    icon: icon || '/icon-192.png',
-    badge: badge || '/badge-72.png',
+    icon: icon || '/icon.svg',
+    badge: badge || '/badge.svg',
     tag: tag || 'chatroom-notification',
     data: notificationData || {},
     vibrate: [100, 50, 100],

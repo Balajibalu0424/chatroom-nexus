@@ -12,9 +12,12 @@ A modern, real-time chatroom application with PIN-based authentication — no em
 - **PIN-Hashed Security** — PINs are hashed with SHA-256 + salt using the Web Crypto API. Never stored in plain text.
 - **Real-Time Messaging** — Instant message delivery powered by Supabase Realtime
 - **Emoji Reactions** — React to any message with quick emoji reactions
-- **Stickers** — Send meme stickers from a pre-loaded pack
+- **GIFs and Stickers** — Send safe-rated GIFs, animated stickers, and static sticker packs
 - **Image Uploads** — Share photos directly in chat
 - **Reply to Messages** — Reference and reply to specific messages
+- **In-App Notifications** — Toasts, unread badges, tab-title counts, and a notification center
+- **Browser Push Notifications** — Service-worker push endpoints with private payload previews
+- **Premium Glass UI** — Responsive 3D glassmorphism surfaces with reduced-motion fallbacks
 - **Edit & Delete** — Edit or delete your own messages
 - **Room PIN Protection** — Lock rooms with an optional PIN
 - **Typing Indicators** — See who's typing in real-time
@@ -144,14 +147,17 @@ Required server-only variables:
 - `MESHCENTRAL_USERID`
 - `MESHCENTRAL_LOGIN_TOKEN_KEY`
 - `ADMIN_DEVICES_JSON` (optional fallback catalog when you do not want to read devices from Supabase)
+- `NEXT_PUBLIC_GIPHY_API_KEY` (optional; enables live GIF search, otherwise safe fallback GIF art is shown)
+- `NEXT_PUBLIC_VAPID_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` (browser push notifications)
 
 Helpful setup commands:
 
 ```bash
 npm run admin:hash-password -- "replace-with-strong-password"
+npm run push:vapid
 ```
 
-Apply the new Supabase migration for `admin_devices` and `admin_audit_logs`, then replace the seeded placeholder MeshCentral node IDs for `Desktop` and `Laptop`.
+Apply the Supabase migrations for `admin_devices`, `admin_audit_logs`, rich notification settings, room mute state, and push subscription storage, then replace the seeded placeholder MeshCentral node IDs for `Desktop` and `Laptop`.
 
 If the Supabase project is not available yet, configure devices directly from env:
 
@@ -272,10 +278,10 @@ supabase
 ## Known Limitations
 
 - **No end-to-end encryption** — Data is visible to Supabase
-- **No push notifications** — Would require service worker setup
-- **No message search** — Supabase full-text search could be added
-- **No read receipts** — Would need presence tracking enhancement
-- **No voice messages** — Audio recording infrastructure not included
+- **GIF search requires a provider key** — Without `NEXT_PUBLIC_GIPHY_API_KEY`, the app shows built-in safe fallback GIF art
+- **Browser push requires VAPID and database migration** — Hosts need VAPID env vars and the latest Supabase migration applied
+- **Mobile push varies by platform** — iOS requires Add to Home Screen/PWA support; unsupported browsers fall back to in-app notifications
+- **No read receipts** — Would need presence/read-state tracking enhancement
 
 ---
 

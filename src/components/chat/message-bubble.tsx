@@ -8,6 +8,8 @@ import { EmojiPicker } from '@/components/chat/emoji-picker'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { getInitials } from '@/lib/utils'
 import type { Message } from '@/lib/types'
+import type { UserSettings } from '@/lib/types'
+import { withDefaultUserSettings } from '@/lib/rich-messaging'
 import { 
   MoreVertical, 
   Reply, 
@@ -34,6 +36,7 @@ interface MessageBubbleProps {
   onCopyLink?: () => void
   searchQuery?: string
   isHighlighted?: boolean
+  settings?: Partial<UserSettings>
 }
 
 export function MessageBubble({ 
@@ -48,9 +51,13 @@ export function MessageBubble({
   onForward,
   onCopyLink,
   searchQuery = '',
-  isHighlighted = false
+  isHighlighted = false,
+  settings
 }: MessageBubbleProps) {
   const [showReactions, setShowReactions] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [gifPlaying, setGifPlaying] = useState(false)
+  const normalizedSettings = withDefaultUserSettings(settings)
 
   // Group reactions by emoji
   const groupedReactions = useMemo(() => {
@@ -126,14 +133,45 @@ export function MessageBubble({
             <img 
               src={message.file_url || ''} 
               alt={message.file_name || 'Image'}
-              className="max-w-[300px] rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-              onClick={() => message.file_url && window.open(message.file_url, '_blank')}
+              className="max-h-[22rem] max-w-[min(300px,70vw)] cursor-pointer rounded-2xl object-cover shadow-lg transition-opacity hover:opacity-90"
+              onClick={() => message.file_url && setPreviewUrl(message.file_url)}
             />
             {message.content && (
               <p className="text-sm">{highlightText(message.content)}</p>
             )}
           </div>
         )
+
+      case 'gif': {
+        const animatedUrl = message.file_url || ''
+        const stillUrl = message.file_name || animatedUrl
+        const shouldAnimate = normalizedSettings.media_autoplay && !normalizedSettings.reduced_motion
+        const activeUrl = shouldAnimate || gifPlaying ? animatedUrl : stillUrl
+
+        return (
+          <button
+            type="button"
+            className="group relative block overflow-hidden rounded-2xl text-left shadow-lg"
+            onClick={() => {
+              if (shouldAnimate || gifPlaying) {
+                animatedUrl && setPreviewUrl(animatedUrl)
+              } else {
+                setGifPlaying(true)
+              }
+            }}
+          >
+            <img
+              src={activeUrl}
+              alt={message.content || 'GIF'}
+              className="max-h-[22rem] max-w-[min(320px,72vw)] object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              loading="lazy"
+            />
+            <span className="absolute bottom-2 left-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white">
+              {shouldAnimate || gifPlaying ? 'GIF' : 'Play GIF'}
+            </span>
+          </button>
+        )
+      }
       
       case 'file':
         return (
@@ -170,7 +208,7 @@ export function MessageBubble({
           <img 
             src={message.file_url || ''} 
             alt={message.content}
-            className="w-24 h-24 object-contain"
+            className="h-28 w-28 object-contain drop-shadow-2xl"
           />
         )
       
@@ -217,11 +255,25 @@ export function MessageBubble({
           </div>
         )}
         
-        <div className={`relative rounded-2xl px-4 py-2 ${
+        <div className={`message-depth relative rounded-2xl px-4 py-2 ${
           isOwn 
-            ? 'bg-primary text-primary-foreground rounded-br-md' 
-            : 'bg-muted rounded-bl-md'
+            ? 'bg-primary/95 text-primary-foreground rounded-br-md shadow-[0_18px_40px_rgba(14,165,233,.24)]'
+            : 'glass-panel rounded-bl-md border border-white/10'
         }`}>
+          {message.reply_to_message ? (
+            <div className={`mb-2 rounded-xl border-l-2 px-3 py-2 text-xs ${
+              isOwn ? 'border-white/70 bg-white/10 text-primary-foreground/80' : 'border-primary/70 bg-background/35 text-muted-foreground'
+            }`}>
+              <p className="font-semibold">{message.reply_to_message.sender?.username || 'Reply'}</p>
+              <p className="line-clamp-2">
+                {message.reply_to_message.type === 'gif'
+                  ? 'GIF'
+                  : message.reply_to_message.type === 'sticker'
+                    ? 'Sticker'
+                    : message.reply_to_message.content}
+              </p>
+            </div>
+          ) : null}
           {renderContent()}
           
           {/* Message actions - visible on hover */}
@@ -383,6 +435,17 @@ export function MessageBubble({
           </span>
         </div>
       )}
+
+      {previewUrl ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <div className="max-h-[90vh] max-w-[92vw] overflow-hidden rounded-[2rem] border border-white/15 bg-black shadow-2xl">
+            <img src={previewUrl} alt={message.content || 'Media preview'} className="max-h-[90vh] max-w-[92vw] object-contain" />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { User, Room, Message, UserSettings } from '@/lib/types'
 import { generateAvatarColor, verifyPin, hashPin } from '@/lib/utils'
+import { DEFAULT_USER_SETTINGS, withDefaultUserSettings } from '@/lib/rich-messaging'
 
 interface AuthState {
   user: User | null
@@ -20,12 +21,7 @@ interface AuthState {
   unsubscribePush: () => Promise<void>
 }
 
-const defaultSettings: UserSettings = {
-  theme: 'dark',
-  notifications: true,
-  sound_enabled: true,
-  message_preview: true,
-}
+const defaultSettings: UserSettings = DEFAULT_USER_SETTINGS
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -168,7 +164,7 @@ export const useAuthStore = create<AuthState>()(
 
       updateSettings: (newSettings) => {
         set((state) => ({
-          settings: { ...state.settings, ...newSettings }
+          settings: withDefaultUserSettings({ ...state.settings, ...newSettings })
         }))
       },
 
@@ -228,6 +224,14 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
         settings: state.settings,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AuthState> | undefined
+        return {
+          ...currentState,
+          ...persisted,
+          settings: withDefaultUserSettings(persisted?.settings),
+        }
+      },
     }
   )
 )

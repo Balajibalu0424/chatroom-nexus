@@ -37,7 +37,7 @@ export interface Message {
   room_id: string
   user_id: string
   content: string
-  type: 'text' | 'image' | 'file' | 'sticker' | 'voice'
+  type: 'text' | 'image' | 'file' | 'sticker' | 'voice' | 'gif'
   file_url?: string | null
   file_name?: string | null
   reply_to?: string | null
@@ -147,6 +147,14 @@ export interface UserSettings {
   notifications: boolean
   sound_enabled: boolean
   message_preview: boolean
+  push_enabled?: boolean
+  privacy_mode?: 'balanced' | 'private'
+  media_autoplay?: boolean
+  reduced_motion?: boolean
+  effects_3d?: boolean
+  gif_rating?: 'g' | 'pg'
+  muted_rooms?: string[]
+  sound_volume?: number
 }
 
 export interface AdminDevice {

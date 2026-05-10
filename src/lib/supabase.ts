@@ -86,18 +86,21 @@ export type Database = {
           room_id: string
           user_id: string
           joined_at: string
+          is_muted: boolean
         }
         Insert: {
           id?: string
           room_id: string
           user_id: string
           joined_at?: string
+          is_muted?: boolean
         }
         Update: {
           id?: string
           room_id?: string
           user_id?: string
           joined_at?: string
+          is_muted?: boolean
         }
       }
       messages: {
@@ -106,7 +109,7 @@ export type Database = {
           room_id: string
           user_id: string
           content: string
-          type: 'text' | 'image' | 'file' | 'sticker' | 'voice'
+          type: 'text' | 'image' | 'file' | 'sticker' | 'voice' | 'gif'
           file_url: string | null
           file_name: string | null
           reply_to: string | null
@@ -119,7 +122,7 @@ export type Database = {
           room_id: string
           user_id: string
           content: string
-          type?: 'text' | 'image' | 'file' | 'sticker' | 'voice'
+          type?: 'text' | 'image' | 'file' | 'sticker' | 'voice' | 'gif'
           file_url?: string | null
           file_name?: string | null
           reply_to?: string | null
@@ -132,7 +135,7 @@ export type Database = {
           room_id?: string
           user_id?: string
           content?: string
-          type?: 'text' | 'image' | 'file' | 'sticker' | 'voice'
+          type?: 'text' | 'image' | 'file' | 'sticker' | 'voice' | 'gif'
           file_url?: string | null
           file_name?: string | null
           reply_to?: string | null

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/comp
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { EmojiPicker } from '@/components/chat/emoji-picker'
 import { StickerPicker } from '@/components/chat/sticker-picker'
+import { GifPicker } from '@/components/chat/gif-picker'
 import { MessageBubble } from '@/components/chat/message-bubble'
 import { TypingIndicator } from '@/components/chat/typing-indicator'
 import { ImageUpload } from '@/components/chat/image-upload'
@@ -19,12 +20,13 @@ import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/lib/stores'
 import { formatMessageDate, shouldShowDateDivider, getInitials } from '@/lib/utils'
 import { sendToUltron, isMessageToUltron, extractUltronPrompt } from '@/lib/ultron'
+import { isRoomMuted, withDefaultUserSettings } from '@/lib/rich-messaging'
 import { format, isToday, isYesterday, isSameDay } from 'date-fns'
 import type { Message, Room, TypingStatus, PresenceState } from '@/lib/types'
 import { toast } from 'sonner'
 import { 
   Send, 
-  Image, 
+  Image as ImageIcon,
   Smile, 
   MoreVertical, 
   ArrowLeft,
@@ -50,7 +52,10 @@ import {
   Forward,
   Crown,
   Shield,
-  Ban
+  Ban,
+  Film,
+  BellOff,
+  BellRing
 } from 'lucide-react'
 
 interface ChatViewProps {
@@ -66,6 +71,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const [isLoading, setIsLoading] = useState(true)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showStickerPicker, setShowStickerPicker] = useState(false)
+  const [showGifPicker, setShowGifPicker] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
   const [showFileUpload, setShowFileUpload] = useState(false)
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
@@ -86,6 +92,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const [availableRooms, setAvailableRooms] = useState<Room[]>([])
   const [isAdmin, setIsAdmin] = useState(false)
   const [bannedUsers, setBannedUsers] = useState<string[]>([])
+  const [isCurrentRoomMuted, setIsCurrentRoomMuted] = useState(false)
   
   // Pagination state
   const [hasMore, setHasMore] = useState(true)
@@ -97,8 +104,38 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const isAtBottomRef = useRef(isAtBottom)
+  const unreadCountRef = useRef(unreadCount)
+  const loadMessagesRef = useRef<((loadMore?: boolean) => Promise<void>) | null>(null)
   
   const user = useAuthStore((state) => state.user)
+  const rawSettings = useAuthStore((state) => state.settings)
+  const settings = useMemo(() => withDefaultUserSettings(rawSettings), [rawSettings])
+  const updateSettings = useAuthStore((state) => state.updateSettings)
+
+  useEffect(() => {
+    isAtBottomRef.current = isAtBottom
+  }, [isAtBottom])
+
+  useEffect(() => {
+    unreadCountRef.current = unreadCount
+  }, [unreadCount])
+
+  const requestRoomPush = useCallback((messageId: string) => {
+    if (!user || isCurrentRoomMuted) return
+
+    fetch('/api/push/room-message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        roomId: room.id,
+        messageId,
+        senderId: user.id,
+      }),
+    }).catch((error) => {
+      console.error('Room push request failed:', error)
+    })
+  }, [isCurrentRoomMuted, room.id, user])
 
   // Load messages with reactions (with pagination)
   // NOTE: We load NEWEST first (desc), then reverse for display (asc order for grouping)
@@ -111,7 +148,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     
     try {
       const { supabase } = await import('@/lib/supabase')
-      
+
       let query = supabase
         .from('messages')
         .select(`
@@ -167,6 +204,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     setIsLoadingMore(false)
   }, [room.id, oldestMessageId, MESSAGES_PER_PAGE])
 
+  useEffect(() => {
+    loadMessagesRef.current = loadMessages
+  }, [loadMessages])
+
   // Load more when scrolling up
   const loadMoreMessages = useCallback(() => {
     if (!isLoadingMore && hasMore && !isAtBottom) {
@@ -175,8 +216,8 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   }, [isLoadingMore, hasMore, isAtBottom, loadMessages])
 
   // Load room members and check admin status
-  const loadMembers = async () => {
-    if (!user || !room) return
+  const loadMembers = useCallback(async () => {
+    if (!user) return
     
     try {
       const { supabase } = await import('@/lib/supabase')
@@ -187,6 +228,8 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
       if (data) {
         setMembers(data)
+        const currentMember = data.find((member: any) => member.user_id === user.id)
+        setIsCurrentRoomMuted(Boolean(currentMember?.is_muted || isRoomMuted(settings, room.id)))
       }
 
       // Check if user is admin
@@ -211,12 +254,16 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     } catch (e) {
       console.error('Load members error:', e)
     }
-  }
+  }, [room.id, settings, user])
 
   useEffect(() => {
     loadMessages()
     loadMembers()
-  }, [loadMessages, room.id])
+  }, [loadMessages, loadMembers, room.id])
+
+  useEffect(() => {
+    setIsCurrentRoomMuted(isRoomMuted(settings, room.id))
+  }, [room.id, settings])
 
   // Subscribe to realtime changes
   useEffect(() => {
@@ -226,9 +273,17 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
     const setupRealtime = async () => {
       const { supabase } = await import('@/lib/supabase')
-      
+      const roomChannelName = `room:${room.id}:${user?.id ?? 'guest'}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+      await Promise.all(supabase
+        .getChannels()
+        .filter((existingChannel: any) =>
+          existingChannel.topic === `realtime:presence:${room.id}` ||
+          existingChannel.topic === `realtime:typing:${room.id}`
+        )
+        .map((existingChannel: any) => supabase.removeChannel(existingChannel)))
+
       channel = supabase
-        .channel(`room:${room.id}`)
+        .channel(roomChannelName)
         .on(
           'postgres_changes',
           {
@@ -257,12 +312,12 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
               })
               
               // Update unread if not at bottom
-              if (!isAtBottom && fullMessage.user_id !== user?.id) {
-                onUnreadChange?.((unreadCount || 0) + 1)
+              if (!isAtBottomRef.current && fullMessage.user_id !== user?.id) {
+                onUnreadChange?.((unreadCountRef.current || 0) + 1)
               }
               
               // Scroll to bottom if at bottom
-              if (isAtBottom) {
+              if (isAtBottomRef.current) {
                 scrollToBottom()
               }
             }
@@ -304,7 +359,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           },
           () => {
             // Reload reactions for all messages
-            loadMessages()
+            loadMessagesRef.current?.()
           }
         )
         .subscribe()
@@ -353,7 +408,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
       if (presenceChannel) presenceChannel.unsubscribe()
       if (typingChannel) typingChannel.unsubscribe()
     }
-  }, [room.id, user, isAtBottom, unreadCount, onUnreadChange, loadMessages])
+  }, [room.id, user, onUnreadChange])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -392,7 +447,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
     try {
       const { supabase } = await import('@/lib/supabase')
-      
+
       if (editingMessage) {
         // Update existing message
         const { error } = await supabase
@@ -425,6 +480,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           sender: { username: user.username, avatar_color: user.avatar_color },
           status: 'sending' as const,
           reply_to: replyTo?.id || undefined,
+          reply_to_message: replyTo || undefined,
         }
         
         setMessages(prev => [...prev, optimisticMessage])
@@ -447,6 +503,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         if (!error && data) {
           // Replace optimistic message with real one
           setMessages(prev => prev.map(m => m.id === tempId ? data as Message : m))
+          requestRoomPush(data.id)
           
           // If this is a message to @ultron, get response
           if (isUltronMessage) {
@@ -545,9 +602,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
       if (!error && data) {
         setMessages(prev => [...prev, data as Message])
+        requestRoomPush(data.id)
         scrollToBottom()
       }
-      
+
       setShowImageUpload(false)
       setReplyTo(null)
     } catch (e) {
@@ -578,6 +636,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
       if (!error && data) {
         setMessages(prev => [...prev, data as Message])
+        requestRoomPush(data.id)
         scrollToBottom()
       }
       
@@ -610,6 +669,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
       if (!error && data) {
         setMessages(prev => [...prev, data as Message])
+        requestRoomPush(data.id)
         scrollToBottom()
       }
       
@@ -635,19 +695,56 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           content: stickerName,
           type: 'sticker',
           file_url: url,
+          reply_to: replyTo?.id || null,
         })
         .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
         .single()
 
       if (!error && data) {
         setMessages(prev => [...prev, data as Message])
+        requestRoomPush(data.id)
         scrollToBottom()
       }
       
       setShowStickerPicker(false)
+      setReplyTo(null)
     } catch (e) {
       console.error('Send sticker error:', e)
       toast.error('Failed to send sticker')
+    }
+  }
+
+  const handleSendGif = async (gif: { url: string; previewUrl: string; title: string }) => {
+    if (!user) return
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          room_id: room.id,
+          user_id: user.id,
+          content: gif.title || 'GIF',
+          type: 'gif',
+          file_url: gif.url,
+          file_name: gif.previewUrl,
+          reply_to: replyTo?.id || null,
+        })
+        .select(`*, sender:users(id, username, avatar_color), reactions:message_reactions(*, user:users(id, username))`)
+        .single()
+
+      if (!error && data) {
+        setMessages(prev => [...prev, data as Message])
+        requestRoomPush(data.id)
+        scrollToBottom()
+      }
+
+      setShowGifPicker(false)
+      setReplyTo(null)
+    } catch (e) {
+      console.error('Send GIF error:', e)
+      toast.error('Failed to send GIF')
     }
   }
 
@@ -865,6 +962,35 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     setTimeout(() => setCopiedCode(false), 2000)
   }
 
+  const toggleRoomMute = async () => {
+    if (!user) return
+    const nextMuted = !isCurrentRoomMuted
+
+    try {
+      const { supabase } = await import('@/lib/supabase')
+      const { error } = await supabase
+        .from('room_members')
+        .update({ is_muted: nextMuted })
+        .eq('room_id', room.id)
+        .eq('user_id', user.id)
+
+      if (error) throw error
+
+      setIsCurrentRoomMuted(nextMuted)
+      const mutedRooms = new Set(settings.muted_rooms ?? [])
+      if (nextMuted) {
+        mutedRooms.add(room.id)
+      } else {
+        mutedRooms.delete(room.id)
+      }
+      updateSettings({ muted_rooms: Array.from(mutedRooms) })
+      toast.success(nextMuted ? 'Room muted' : 'Room unmuted')
+    } catch (error) {
+      console.error('Mute room error:', error)
+      toast.error('Failed to update room notifications')
+    }
+  }
+
   const handleSearch = (query: string) => {
     setSearchQuery(query)
     if (query.trim()) {
@@ -887,11 +1013,17 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
     }
   }
 
+  const messagesById = new Map(messages.map((msg) => [msg.id, msg]))
+  const displayMessages = messages.map((msg) => ({
+    ...msg,
+    reply_to_message: msg.reply_to ? messagesById.get(msg.reply_to) ?? msg.reply_to_message : msg.reply_to_message,
+  }))
+
   // Group messages by date
   const groupedMessages: { date: string; messages: Message[] }[] = []
   let currentDate = ''
 
-  messages.forEach((msg, idx) => {
+  displayMessages.forEach((msg) => {
     const msgDate = format(new Date(msg.created_at), 'yyyy-MM-dd')
     if (msgDate !== currentDate) {
       currentDate = msgDate
@@ -902,10 +1034,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
   })
 
   return (
-    <div className="h-screen flex flex-col bg-background">
+    <div className="premium-chat-shell flex h-screen flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="h-16 border-b bg-background flex items-center px-4 gap-3">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+      <div className="glass-panel z-10 mx-3 mt-3 flex h-16 items-center gap-3 rounded-2xl border border-white/10 px-4 shadow-2xl shadow-black/10">
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label="Back to rooms">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         
@@ -916,21 +1048,21 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           <div>
             <p className="font-semibold">{room.name}</p>
             <p className="text-xs text-muted-foreground">
-              {onlineUsers.length} online • {room.code}
+              {onlineUsers.length} online • {room.code} {isCurrentRoomMuted ? '• muted' : ''}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={() => setShowSearch(!showSearch)}>
+          <Button variant="ghost" size="icon" onClick={() => setShowSearch(!showSearch)} aria-label="Search messages">
             <Search className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setShowMembers(true)}>
+          <Button variant="ghost" size="icon" onClick={() => setShowMembers(true)} aria-label="View room members">
             <Users className="h-5 w-5" />
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label="Room actions">
                 <MoreVertical className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
@@ -943,6 +1075,10 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
               <DropdownMenuItem onClick={() => setShowMembers(true)}>
                 <Users className="h-4 w-4 mr-2" />
                 View Members
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={toggleRoomMute}>
+                {isCurrentRoomMuted ? <BellRing className="h-4 w-4 mr-2" /> : <BellOff className="h-4 w-4 mr-2" />}
+                {isCurrentRoomMuted ? 'Unmute Room' : 'Mute Room'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -967,7 +1103,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
         ref={messagesContainerRef as any}
         onScroll={handleScroll}
       >
-        <div className="p-4 space-y-4">
+        <div className="space-y-4 p-4 md:p-6">
           {/* Load more indicator */}
           {isLoadingMore && (
             <div className="flex items-center justify-center py-2">
@@ -1034,6 +1170,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
                         onCopyLink={() => handleCopyLink(msg.id)}
                         searchQuery={searchQuery}
                         isHighlighted={searchResults[searchHighlighted]?.id === msg.id}
+                        settings={settings}
                       />
                     </div>
                   )
@@ -1086,14 +1223,14 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
       )}
 
       {/* Composer */}
-      <div className="border-t bg-background p-3">
+      <div className="glass-panel mx-3 mb-3 rounded-2xl border border-white/10 p-3 shadow-2xl shadow-black/10">
         <div className="flex items-end gap-2">
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setShowImageUpload(true)}>
-                    <Image className="h-5 w-5" />
+                  <Button variant="ghost" size="icon" onClick={() => setShowImageUpload(true)} aria-label="Send image">
+                    <ImageIcon className="h-5 w-5" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Send Image</TooltipContent>
@@ -1103,7 +1240,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setShowFileUpload(true)}>
+                  <Button variant="ghost" size="icon" onClick={() => setShowFileUpload(true)} aria-label="Send file">
                     <FileText className="h-5 w-5" />
                   </Button>
                 </TooltipTrigger>
@@ -1114,7 +1251,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={() => setShowVoiceRecorder(true)}>
+                  <Button variant="ghost" size="icon" onClick={() => setShowVoiceRecorder(true)} aria-label="Record voice message">
                     <Mic className="h-5 w-5" />
                   </Button>
                 </TooltipTrigger>
@@ -1124,7 +1261,7 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
             <DropdownMenu open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="Open emoji picker">
                   <Smile className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1138,12 +1275,23 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
 
             <DropdownMenu open={showStickerPicker} onOpenChange={setShowStickerPicker}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="Open sticker picker">
                   <Sticker className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="mb-2">
-                <StickerPicker onSelect={handleSendSticker} />
+                <StickerPicker onSelect={handleSendSticker} onClose={() => setShowStickerPicker(false)} />
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu open={showGifPicker} onOpenChange={setShowGifPicker}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Open GIF picker">
+                  <Film className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="mb-2 border-0 bg-transparent p-0 shadow-none">
+                <GifPicker rating={settings.gif_rating} onSelect={handleSendGif} onClose={() => setShowGifPicker(false)} />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1171,11 +1319,11 @@ export function ChatView({ room, onBack, unreadCount = 0, onUnreadChange }: Chat
           </div>
 
           {message.trim() || editingMessage ? (
-            <Button size="icon" onClick={handleSendMessage}>
+            <Button size="icon" onClick={handleSendMessage} aria-label="Send message">
               <Send className="h-5 w-5" />
             </Button>
           ) : (
-            <Button size="icon" variant="secondary">
+            <Button size="icon" variant="secondary" aria-label="Record voice message">
               <Mic className="h-5 w-5" />
             </Button>
           )}
